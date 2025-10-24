@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class CandleSchema(BaseModel):
@@ -31,29 +31,40 @@ class CandleSchema(BaseModel):
             raise ValueError(f"Invalid interval: {v}. Must be one of {valid_intervals}")
         return v
 
-    @field_validator("high")
-    @classmethod
-    def validate_high(cls, v: Decimal, info) -> Decimal:
-        """Validate that high >= low, open, close."""
-        values = info.data
-        if "low" in values and v < values["low"]:
-            raise ValueError("High must be >= low")
-        if "open" in values and v < values["open"]:
-            raise ValueError("High must be >= open")
-        if "close" in values and v < values["close"]:
-            raise ValueError("High must be >= close")
-        return v
+    @model_validator(mode='after')
+    def validate_ohlc_integrity(self) -> 'CandleSchema':
+        """
+        Validate OHLC price relationships after all fields are populated.
 
-    @field_validator("low")
-    @classmethod
-    def validate_low(cls, v: Decimal, info) -> Decimal:
-        """Validate that low <= open, close."""
-        values = info.data
-        if "open" in values and v > values["open"]:
-            raise ValueError("Low must be <= open")
-        if "close" in values and v > values["close"]:
-            raise ValueError("Low must be <= close")
-        return v
+        Ensures candle data integrity:
+        - high >= max(open, close) - High must be at or above opening/closing price
+        - low <= min(open, close) - Low must be at or below opening/closing price
+        - high >= low - High cannot be below low
+
+        This model-level validator runs after all fields are populated, ensuring
+        reliable validation regardless of field order.
+        """
+        # Check high >= max(open, close)
+        max_price = max(self.open, self.close)
+        if self.high < max_price:
+            raise ValueError(
+                f"Invalid candle: high ({self.high}) must be >= max(open={self.open}, close={self.close})"
+            )
+
+        # Check low <= min(open, close)
+        min_price = min(self.open, self.close)
+        if self.low > min_price:
+            raise ValueError(
+                f"Invalid candle: low ({self.low}) must be <= min(open={self.open}, close={self.close})"
+            )
+
+        # Check high >= low
+        if self.high < self.low:
+            raise ValueError(
+                f"Invalid candle: high ({self.high}) cannot be less than low ({self.low})"
+            )
+
+        return self
 
     model_config = {
         "from_attributes": True,

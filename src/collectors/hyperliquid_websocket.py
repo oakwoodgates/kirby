@@ -405,18 +405,36 @@ class HyperliquidWebSocketCollector(BaseCollector):
 
     async def on_stop(self) -> None:
         """
-        Unsubscribe from all channels and cleanup.
+        Unsubscribe from all channels and cleanup resources.
+
+        Explicitly unsubscribes from all active WebSocket channels to ensure
+        clean shutdown and prevent resource leaks.
         """
         self.logger.info(f"Unsubscribing from all channels for {self.coin_name}")
 
-        if self.info:
-            for channel, sub_id in self.subscription_ids.items():
+        if self.info and self.subscription_ids:
+            for channel, sub_id in list(self.subscription_ids.items()):
                 try:
-                    # Note: Hyperliquid SDK unsubscribe requires subscription dict
-                    # For now, we'll let the SDK handle cleanup on connection close
+                    # Build unsubscribe payload based on channel type
+                    if channel == "candle":
+                        unsub_payload = {"type": "candle", "coin": self.coin_name, "interval": "1m"}
+                    elif channel == "l2Book":
+                        unsub_payload = {"type": "l2Book", "coin": self.coin_name}
+                    elif channel == "activeAssetCtx":
+                        unsub_payload = {"type": "activeAssetCtx", "coin": self.coin_name}
+                    else:
+                        self.logger.warning(f"Unknown channel type: {channel}")
+                        continue
+
+                    # Unsubscribe using SDK method
+                    self.info.unsubscribe(unsub_payload, sub_id)
                     self.logger.debug(f"Unsubscribed from {channel} (sub_id={sub_id})")
+
                 except Exception as e:
-                    self.logger.error(f"Error unsubscribing from {channel}: {e}")
+                    self.logger.error(f"Error unsubscribing from {channel}: {e}", exc_info=True)
+
+            # Clear subscription tracking
+            self.subscription_ids.clear()
 
         self.logger.info("WebSocket cleanup complete")
 
