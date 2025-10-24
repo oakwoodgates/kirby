@@ -120,14 +120,14 @@ async def detailed_health(db: AsyncSession = Depends(get_db)) -> Dict[str, Any]:
         candle_stats_query = text("""
             SELECT
                 l.id,
-                l.symbol,
+                l.ccxt_symbol,
                 COUNT(c.timestamp) as candle_count,
                 MIN(c.timestamp) as earliest_candle,
                 MAX(c.timestamp) as latest_candle
             FROM listing l
             LEFT JOIN candle c ON l.id = c.listing_id
             WHERE l.is_active = true
-            GROUP BY l.id, l.symbol
+            GROUP BY l.id, l.ccxt_symbol
             ORDER BY l.id
         """)
 

@@ -51,28 +51,8 @@ async def get_listings(
         result = await db.execute(query)
         listings = result.scalars().all()
 
-        # Convert to response schema
-        return [
-            ListingResponse(
-                id=listing.id,
-                exchange_id=listing.exchange_id,
-                exchange_name=listing.exchange.name if listing.exchange else None,
-                coin_id=listing.coin_id,
-                coin_symbol=listing.coin.symbol if listing.coin else None,
-                listing_type_id=listing.listing_type_id,
-                listing_type=listing.listing_type.type if listing.listing_type else None,
-                ccxt_symbol=listing.ccxt_symbol,
-                is_active=listing.is_active,
-                backfill_status=listing.backfill_status.value if listing.backfill_status else "pending",
-                backfill_progress=listing.backfill_progress,
-                collector_config=listing.collector_config,
-                metadata=listing.listing_metadata,
-                created_at=listing.created_at,
-                updated_at=listing.updated_at,
-                activated_at=listing.activated_at,
-            )
-            for listing in listings
-        ]
+        # Convert to response schema using helper method
+        return [ListingResponse.from_orm_with_relationships(listing) for listing in listings]
 
     except Exception as e:
         raise HTTPException(
@@ -120,24 +100,7 @@ async def get_listing(
                 detail=f"Listing {listing_id} not found"
             )
 
-        return ListingResponse(
-            id=listing.id,
-            exchange_id=listing.exchange_id,
-            exchange_name=listing.exchange.name if listing.exchange else None,
-            coin_id=listing.coin_id,
-            coin_symbol=listing.coin.symbol if listing.coin else None,
-            listing_type_id=listing.listing_type_id,
-            listing_type=listing.listing_type.type if listing.listing_type else None,
-            ccxt_symbol=listing.ccxt_symbol,
-            is_active=listing.is_active,
-            backfill_status=listing.backfill_status.value if listing.backfill_status else "pending",
-            backfill_progress=listing.backfill_progress,
-            collector_config=listing.collector_config,
-            metadata=listing.listing_metadata,
-            created_at=listing.created_at,
-            updated_at=listing.updated_at,
-            activated_at=listing.activated_at,
-        )
+        return ListingResponse.from_orm_with_relationships(listing)
 
     except HTTPException:
         raise
