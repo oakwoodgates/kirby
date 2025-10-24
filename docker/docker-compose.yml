@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: kirby_timescaledb
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-kirby}
+      POSTGRES_USER: ${POSTGRES_USER:-kirby_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      # TimescaleDB settings
+      TIMESCALEDB_TELEMETRY: "off"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      # Optional: Mount init scripts
+      # - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-kirby_user} -d ${POSTGRES_DB:-kirby}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kirby_network
+
+  # API service (commented out until API is implemented)
+  # api:
+  #   build:
+  #     context: ..
+  #     dockerfile: docker/Dockerfile.api
+  #   container_name: kirby_api
+  #   environment:
+  #     DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kirby_user}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-kirby}
+  #     ASYNCPG_URL: postgresql://${POSTGRES_USER:-kirby_user}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-kirby}
+  #     API_HOST: 0.0.0.0
+  #     API_PORT: 8000
+  #     API_WORKERS: ${API_WORKERS:-4}
+  #     ENVIRONMENT: ${ENVIRONMENT:-production}
+  #     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  #     LOG_FORMAT: ${LOG_FORMAT:-json}
+  #   ports:
+  #     - "${API_PORT:-8000}:8000"
+  #   depends_on:
+  #     timescaledb:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+  #   networks:
+  #     - kirby_network
+  #   command: gunicorn src.api.main:app --workers ${API_WORKERS:-4} --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+
+  # Collectors service (commented out until collectors are implemented)
+  # collectors:
+  #   build:
+  #     context: ..
+  #     dockerfile: docker/Dockerfile.collectors
+  #   container_name: kirby_collectors
+  #   environment:
+  #     ASYNCPG_URL: postgresql://${POSTGRES_USER:-kirby_user}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-kirby}
+  #     DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kirby_user}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-kirby}
+  #     ENVIRONMENT: ${ENVIRONMENT:-production}
+  #     LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  #     LOG_FORMAT: ${LOG_FORMAT:-json}
+  #     COLLECTOR_HEARTBEAT_INTERVAL: ${COLLECTOR_HEARTBEAT_INTERVAL:-30}
+  #     COLLECTOR_RECONNECT_DELAY: ${COLLECTOR_RECONNECT_DELAY:-5}
+  #     COLLECTOR_MAX_RECONNECT_ATTEMPTS: ${COLLECTOR_MAX_RECONNECT_ATTEMPTS:-10}
+  #   depends_on:
+  #     timescaledb:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+  #   networks:
+  #     - kirby_network
+  #   command: python -m src.collectors.run
+
+volumes:
+  timescale_data:
+    driver: local
+
+networks:
+  kirby_network:
+    driver: bridge

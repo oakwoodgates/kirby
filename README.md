@@ -204,12 +204,15 @@ Client Application
 - [x] Alembic migrations setup
 - [x] Database session management
 
-### 🚧 Phase 2: Database Layer (In Progress)
-- [ ] asyncpg connection pool
-- [ ] DataWriter class (batch inserts)
-- [ ] Initial migration (create all tables)
-- [ ] TimescaleDB hypertable conversion
-- [ ] Compression policies
+### ✅ Phase 2: Database Layer (Completed)
+- [x] asyncpg connection pool
+- [x] DataWriter class (batch inserts with UPSERT)
+- [x] Pydantic schemas for all data types
+- [x] Docker Compose configuration
+- [x] Dockerfiles (API + collectors)
+- [x] Setup scripts
+- [ ] Initial migration (create all tables) - *Next: Run alembic*
+- [ ] TimescaleDB hypertable conversion - *Next: Add to migration*
 
 ### 📋 Phase 3: CCXT Integration (Planned)
 - [ ] BaseCollector abstract class
@@ -229,11 +232,12 @@ Client Application
 - [ ] WebSocket streaming
 - [ ] OpenAPI documentation
 
-### 📋 Phase 6: Deployment (Planned)
-- [ ] Docker Compose full stack
-- [ ] Dockerfiles (API + collectors)
-- [ ] Environment configuration
-- [ ] Deployment documentation
+### 📋 Phase 6: Deployment (In Progress)
+- [x] Docker Compose configuration
+- [x] Dockerfiles (API + collectors)
+- [x] Environment configuration (.env)
+- [ ] Production deployment guide
+- [ ] Monitoring and alerting setup
 
 ## Configuration
 
