@@ -22,20 +22,50 @@ Kirby ingests real-time and historical cryptocurrency market data from multiple 
 ```
 kirby/
 ├── src/
-│   ├── api/              # FastAPI application
-│   ├── collectors/       # Exchange data collectors (CCXT + custom)
-│   ├── models/           # SQLAlchemy models (source of truth)
-│   ├── services/         # Business logic (backfill, listing management)
-│   ├── db/               # Database layer (asyncpg + SQLAlchemy)
-│   ├── schemas/          # Pydantic schemas for validation
-│   ├── config/           # Configuration management
-│   └── utils/            # Logging, exceptions
-├── migrations/           # Alembic database migrations
-├── tests/                # Unit and integration tests
-├── docker/               # Docker configuration
-├── scripts/              # CLI utilities
-├── pyproject.toml        # Poetry dependencies
-└── .env.example          # Environment variable template
+│   ├── api/                      # FastAPI application (Phase 5)
+│   ├── backfill/                 # Historical data backfill ✅
+│   │   ├── base.py               # Abstract backfiller
+│   │   └── hyperliquid_backfiller.py
+│   ├── collectors/               # Real-time data collectors ✅
+│   │   ├── base.py               # Abstract collector with CCXT
+│   │   ├── hyperliquid_websocket.py  # WebSocket collector
+│   │   └── hyperliquid_polling.py    # REST fallback
+│   ├── models/                   # SQLAlchemy 2.0 async models ✅
+│   │   ├── base.py
+│   │   ├── exchange.py, coin.py, listing_type.py, listing.py
+│   │   ├── candle.py, funding_rate.py, open_interest.py
+│   │   ├── trade.py, market_metadata.py
+│   │   └── backfill_job.py
+│   ├── schemas/                  # Pydantic v2 schemas ✅
+│   │   ├── candle.py, funding_rate.py, open_interest.py
+│   │   ├── listing.py, trade.py, market_metadata.py
+│   │   └── __init__.py
+│   ├── db/                       # Database layer ✅
+│   │   ├── asyncpg_pool.py       # Connection pool (writes)
+│   │   ├── session.py            # SQLAlchemy session (reads)
+│   │   └── writer.py             # DataWriter (batch UPSERT)
+│   ├── config/                   # Configuration ✅
+│   │   ├── settings.py           # Pydantic Settings
+│   │   └── __init__.py
+│   └── utils/                    # Utilities ✅
+│       ├── logger.py             # Structured logging
+│       └── __init__.py
+├── migrations/                   # Alembic migrations ✅
+│   └── versions/
+│       ├── 20251024_0017_ef041ce476ce_initial_schema_with_all_tables.py
+│       └── 20251024_1056_33cd00d7748f_add_backfill_tracking_table.py
+├── scripts/                      # CLI utilities ✅
+│   ├── seed_database.py          # Seed initial data
+│   ├── test_collectors.py        # Test WebSocket collectors
+│   ├── run_backfill.py           # Production backfill orchestrator
+│   └── test_backfill.py          # Test backfill service
+├── docker-compose.yml            # TimescaleDB container ✅
+├── alembic.ini                   # Alembic config ✅
+├── pyproject.toml                # Poetry dependencies ✅
+├── .env                          # Environment variables ✅
+├── README.md                     # This file
+├── ARCHITECTURE.md               # Architecture documentation ✅
+└── DEPLOYMENT.md                 # Deployment guide ✅
 ```
 
 ## Tech Stack
@@ -78,8 +108,8 @@ kirby/
 ### Prerequisites
 
 - Python 3.11+
-- Docker & Docker Compose
-- Poetry (or pip)
+- Docker Desktop (Windows/Mac) or Docker Engine + Docker Compose (Linux)
+- Poetry (recommended) or pip
 
 ### Installation
 
@@ -94,42 +124,83 @@ cd kirby
 # Using Poetry (recommended)
 poetry install
 
-# Or using pip
-pip install -r requirements.txt  # (generate from pyproject.toml)
+# Activate the Poetry shell
+poetry shell
 ```
 
 3. **Configure environment**
 ```bash
-cp .env.example .env
-# Edit .env with your database credentials
+# .env file already exists with sensible defaults
+# Review and edit if needed (database credentials, API settings)
+nano .env
 ```
 
 4. **Start TimescaleDB**
 ```bash
-docker-compose up -d timescaledb
+# Start TimescaleDB container
+docker-compose up -d
+
+# Verify container is running
+docker ps
 ```
 
 5. **Run database migrations**
 ```bash
-# Generate alembic.ini from template
-cp alembic.ini.template alembic.ini
-
-# Run migrations
+# Run all migrations (creates tables, hypertables, indexes)
 alembic upgrade head
+
+# Verify tables were created
+docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "\dt"
 ```
 
-6. **Start the API server**
+6. **Seed initial data**
 ```bash
-# Development (single worker)
-uvicorn src.api.main:app --reload
+# Seeds Hyperliquid exchange and BTC/HYPE listings
+python scripts/seed_database.py
+```
 
-# Production (multi-worker)
+7. **Test data collectors** (optional)
+```bash
+# Test WebSocket collectors for BTC and HYPE
+# This will run for 3 minutes and collect real-time data
+bash -c "PYTHONPATH=. python scripts/test_collectors.py"
+
+# Verify data is being collected
+docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "SELECT COUNT(*) FROM candle;"
+```
+
+8. **Run historical backfill** (optional)
+```bash
+# Backfill last 30 days of data for BTC and HYPE
+python scripts/run_backfill.py
+
+# Or test with just 3 days
+python scripts/test_backfill.py
+```
+
+9. **Start the API server** (Phase 5 - Coming Soon)
+```bash
+# Development mode with auto-reload
+uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
+
+# Production mode with Gunicorn
 gunicorn src.api.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
 ```
 
-7. **Start the data collectors**
+### Verify Installation
+
 ```bash
-python -m src.collectors.run
+# Check database tables
+docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "\dt"
+
+# Check candle data
+docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "SELECT listing_id, COUNT(*) as count, MIN(timestamp) as earliest, MAX(timestamp) as latest FROM candle GROUP BY listing_id;"
+
+# Check funding rates
+docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "SELECT listing_id, COUNT(*) as count FROM funding_rate GROUP BY listing_id;"
+
+# Check open interest
+docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "SELECT listing_id, COUNT(*) as count FROM open_interest GROUP BY listing_id;"
 ```
 
 ## Architecture
@@ -199,45 +270,63 @@ Client Application
 ### ✅ Phase 1: Foundation (Completed)
 - [x] Project structure and Poetry setup
 - [x] Pydantic Settings configuration
-- [x] Structured logging (JSON + text)
-- [x] SQLAlchemy models (all tables)
+- [x] Structured logging (JSON + text formats)
+- [x] SQLAlchemy 2.0 async models (9 tables)
 - [x] Alembic migrations setup
 - [x] Database session management
 
 ### ✅ Phase 2: Database Layer (Completed)
-- [x] asyncpg connection pool
-- [x] DataWriter class (batch inserts with UPSERT)
-- [x] Pydantic schemas for all data types
+- [x] asyncpg connection pool (10-20 connections)
+- [x] DataWriter class with batch UPSERT operations
+- [x] Pydantic v2 schemas for all data types
+- [x] Docker Compose configuration with TimescaleDB
+- [x] Initial migration (all 9 tables created)
+- [x] TimescaleDB hypertables (candles, funding_rates, open_interest, trades, market_metadata)
+- [x] Compression policies (7-day chunks, compressed after 7 days)
+- [x] Database seeding (Hyperliquid exchange, BTC/HYPE listings)
+
+### ✅ Phase 3: Real-Time Data Collection (Completed)
+- [x] BaseCollector abstract class with CCXT integration
+- [x] HyperliquidWebSocketCollector (Hyperliquid Python SDK)
+- [x] HyperliquidPollingCollector (CCXT REST fallback)
+- [x] WebSocket channels: candles (1m), l2Book, activeAssetCtx (funding/OI)
+- [x] Thread-safe async execution (asyncio.run_coroutine_threadsafe)
+- [x] Automatic reconnection with exponential backoff
+- [x] Health monitoring with heartbeats (30s intervals)
+- [x] Real-time data verified in TimescaleDB
+
+### ✅ Phase 4: Historical Backfill Service (Completed)
+- [x] BaseBackfiller abstract class
+- [x] HyperliquidBackfiller with CCXT REST API
+- [x] Backfill tracking table (backfill_job)
+- [x] Batch processing (500-1000 records per request)
+- [x] Rate limiting (configurable delays)
+- [x] Progress monitoring and error handling
+- [x] Orchestrator script (run_backfill.py)
+- [x] Successfully tested: 4,320 candles in 16 seconds
+
+### 📋 Phase 5: FastAPI REST API (Next Priority)
+- [ ] API foundation (main.py, dependencies, middleware)
+- [ ] Health endpoints (system, database, collectors)
+- [ ] Candles endpoint with filters and pagination
+- [ ] Funding rates endpoint
+- [ ] Open interest endpoint
+- [ ] Listings CRUD endpoints
+- [ ] Market snapshot endpoint
+- [ ] Query optimization with SQLAlchemy
+- [ ] OpenAPI/Swagger documentation
+- [ ] Integration tests
+
+### 📋 Phase 6: Production Deployment (Planned)
 - [x] Docker Compose configuration
-- [x] Dockerfiles (API + collectors)
-- [x] Setup scripts
-- [ ] Initial migration (create all tables) - *Next: Run alembic*
-- [ ] TimescaleDB hypertable conversion - *Next: Add to migration*
-
-### 📋 Phase 3: CCXT Integration (Planned)
-- [ ] BaseCollector abstract class
-- [ ] CCXTCollector implementation
-- [ ] Data validation layer
-- [ ] CollectorManager (asyncio orchestration)
-
-### 📋 Phase 4: Backfill & Listings (Planned)
-- [ ] Listing service (CRUD)
-- [ ] BackfillService (historical data)
-- [ ] Seed initial data (Hyperliquid, BTC, HYPE)
-- [ ] Test full backfill
-
-### 📋 Phase 5: API Development (Planned)
-- [ ] FastAPI routes (listings, candles, funding, OI)
-- [ ] Query optimization
-- [ ] WebSocket streaming
-- [ ] OpenAPI documentation
-
-### 📋 Phase 6: Deployment (In Progress)
-- [x] Docker Compose configuration
-- [x] Dockerfiles (API + collectors)
 - [x] Environment configuration (.env)
-- [ ] Production deployment guide
-- [ ] Monitoring and alerting setup
+- [ ] Multi-stage Dockerfiles (optimized)
+- [ ] Production deployment to Digital Ocean
+- [ ] Nginx reverse proxy setup
+- [ ] SSL/TLS certificates (Let's Encrypt)
+- [ ] Monitoring and alerting (logs, metrics)
+- [ ] Automated backups (pg_dump + S3)
+- [ ] CI/CD pipeline (GitHub Actions)
 
 ## Configuration
 
