@@ -1,0 +1,77 @@
+[tool.poetry]
+name = "kirby"
+version = "0.1.0"
+description = "Crypto data ingestion platform and API for multi-exchange trading data"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+# FastAPI and ASGI server
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+gunicorn = "^21.2.0"
+
+# Database
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.25"}
+alembic = "^1.13.1"
+asyncpg = "^0.29.0"
+psycopg2-binary = "^2.9.9"  # For Alembic migrations
+
+# Exchange integration
+ccxt = "^4.2.0"
+
+# Data validation
+pydantic = "^2.5.3"
+pydantic-settings = "^2.1.0"
+
+# Utilities
+python-dotenv = "^1.0.0"
+python-json-logger = "^2.0.7"
+aiofiles = "^23.2.1"
+
+# HTTP client (for custom integrations if needed)
+httpx = "^0.26.0"
+
+[tool.poetry.group.dev.dependencies]
+# Testing
+pytest = "^7.4.4"
+pytest-asyncio = "^0.23.3"
+pytest-cov = "^4.1.0"
+httpx = "^0.26.0"  # For testing FastAPI
+
+# Code quality
+black = "^24.1.1"
+ruff = "^0.1.14"
+mypy = "^1.8.0"
+
+# Development tools
+ipython = "^8.20.0"
+
+[tool.black]
+line-length = 120
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
