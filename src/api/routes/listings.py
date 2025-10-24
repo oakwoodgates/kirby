@@ -60,12 +60,16 @@ async def get_listings(
                 coin_id=listing.coin_id,
                 coin_symbol=listing.coin.symbol if listing.coin else None,
                 listing_type_id=listing.listing_type_id,
-                listing_type_name=listing.listing_type.type if listing.listing_type else None,
-                symbol=listing.symbol,
-                exchange_symbol=listing.exchange_symbol,
+                listing_type=listing.listing_type.type if listing.listing_type else None,
+                ccxt_symbol=listing.ccxt_symbol,
                 is_active=listing.is_active,
+                backfill_status=listing.backfill_status.value if listing.backfill_status else "pending",
+                backfill_progress=listing.backfill_progress,
                 collector_config=listing.collector_config,
+                metadata=listing.listing_metadata,
                 created_at=listing.created_at,
+                updated_at=listing.updated_at,
+                activated_at=listing.activated_at,
             )
             for listing in listings
         ]
@@ -123,12 +127,16 @@ async def get_listing(
             coin_id=listing.coin_id,
             coin_symbol=listing.coin.symbol if listing.coin else None,
             listing_type_id=listing.listing_type_id,
-            listing_type_name=listing.listing_type.type if listing.listing_type else None,
-            symbol=listing.symbol,
-            exchange_symbol=listing.exchange_symbol,
+            listing_type=listing.listing_type.type if listing.listing_type else None,
+            ccxt_symbol=listing.ccxt_symbol,
             is_active=listing.is_active,
+            backfill_status=listing.backfill_status.value if listing.backfill_status else "pending",
+            backfill_progress=listing.backfill_progress,
             collector_config=listing.collector_config,
+            metadata=listing.listing_metadata,
             created_at=listing.created_at,
+            updated_at=listing.updated_at,
+            activated_at=listing.activated_at,
         )
 
     except HTTPException:

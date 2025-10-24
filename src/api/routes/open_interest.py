@@ -70,6 +70,7 @@ async def get_open_interest(
                 timestamp=oi.timestamp,
                 open_interest=oi.open_interest,
                 open_interest_value=oi.open_interest_value,
+                created_at=oi.created_at,
             )
             for oi in open_interest_records
         ]
@@ -103,7 +104,8 @@ async def get_latest_open_interest(
                 listing_id,
                 timestamp,
                 open_interest,
-                open_interest_value
+                open_interest_value,
+                created_at
             FROM open_interest
             ORDER BY listing_id, timestamp DESC
         """)
@@ -118,6 +120,7 @@ async def get_latest_open_interest(
                     timestamp=row[1],
                     open_interest=row[2],
                     open_interest_value=row[3],
+                    created_at=row[4],
                 )
             )
 
@@ -171,6 +174,7 @@ async def get_latest_open_interest_for_listing(
             timestamp=open_interest.timestamp,
             open_interest=open_interest.open_interest,
             open_interest_value=open_interest.open_interest_value,
+            created_at=open_interest.created_at,
         )
 
     except HTTPException:

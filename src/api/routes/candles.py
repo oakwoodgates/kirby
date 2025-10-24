@@ -80,6 +80,7 @@ async def get_candles(
                 close=candle.close,
                 volume=candle.volume,
                 trades_count=candle.trades_count,
+                created_at=candle.created_at,
             )
             for candle in candles
         ]
@@ -125,7 +126,8 @@ async def get_latest_candles(
                 low,
                 close,
                 volume,
-                trades_count
+                trades_count,
+                created_at
             FROM candle
             WHERE interval = :interval
             ORDER BY listing_id, timestamp DESC
@@ -150,6 +152,7 @@ async def get_latest_candles(
                     close=row[6],
                     volume=row[7],
                     trades_count=row[8],
+                    created_at=row[9],
                 )
             )
 
@@ -215,6 +218,7 @@ async def get_latest_candle_for_listing(
             close=candle.close,
             volume=candle.volume,
             trades_count=candle.trades_count,
+            created_at=candle.created_at,
         )
 
     except HTTPException:

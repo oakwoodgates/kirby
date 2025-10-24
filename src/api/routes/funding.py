@@ -74,6 +74,7 @@ async def get_funding_rates(
                 index_price=fr.index_price,
                 premium=fr.premium,
                 next_funding_time=fr.next_funding_time,
+                created_at=fr.created_at,
             )
             for fr in funding_rates
         ]
@@ -113,7 +114,8 @@ async def get_latest_funding_rates(
                 mark_price,
                 index_price,
                 premium,
-                next_funding_time
+                next_funding_time,
+                created_at
             FROM funding_rate
             ORDER BY listing_id, timestamp DESC
         """)
@@ -132,6 +134,7 @@ async def get_latest_funding_rates(
                     index_price=row[5],
                     premium=row[6],
                     next_funding_time=row[7],
+                    created_at=row[8],
                 )
             )
 
@@ -189,6 +192,7 @@ async def get_latest_funding_rate_for_listing(
             index_price=funding_rate.index_price,
             premium=funding_rate.premium,
             next_funding_time=funding_rate.next_funding_time,
+            created_at=funding_rate.created_at,
         )
 
     except HTTPException:
