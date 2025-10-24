@@ -91,3 +91,7 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
+
+
+# Alias for FastAPI dependency injection
+get_async_session = get_session

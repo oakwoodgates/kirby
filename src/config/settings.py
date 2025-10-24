@@ -111,6 +111,39 @@ class Settings(BaseSettings):
         """Check if running in development environment."""
         return self.environment.lower() == "development"
 
+    # Uppercase aliases for backward compatibility
+    @property
+    def DATABASE_URL(self) -> str:
+        return str(self.database_url)
+
+    @property
+    def ASYNCPG_URL(self) -> str:
+        return self.asyncpg_url
+
+    @property
+    def DB_POOL_MIN_SIZE(self) -> int:
+        return self.db_pool_min_size
+
+    @property
+    def DB_POOL_MAX_SIZE(self) -> int:
+        return self.db_pool_max_size
+
+    @property
+    def LOG_LEVEL(self) -> str:
+        return self.log_level
+
+    @property
+    def LOG_FORMAT(self) -> str:
+        return self.log_format
+
+    @property
+    def ENVIRONMENT(self) -> str:
+        return self.environment
+
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        return self.cors_origins
+
 
 @lru_cache
 def get_settings() -> Settings:
@@ -119,3 +152,7 @@ def get_settings() -> Settings:
     This function is cached to avoid re-reading environment variables on every call.
     """
     return Settings()
+
+
+# Create a global settings instance for easy access
+settings = get_settings()
