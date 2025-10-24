@@ -19,7 +19,7 @@ class Coin(Base, CreatedAtMixin):
         id: Primary key
         symbol: Coin symbol (e.g., 'BTC', 'HYPE', 'ETH')
         name: Full name (e.g., 'Bitcoin', 'Hyperliquid', 'Ethereum')
-        metadata: Additional coin-specific metadata
+        coin_metadata: Additional coin-specific metadata
         created_at: When the coin was added
     """
 
@@ -39,7 +39,7 @@ class Coin(Base, CreatedAtMixin):
         comment="Full coin name",
     )
 
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    coin_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
         comment="Coin-specific metadata (contract address, network, etc.)",

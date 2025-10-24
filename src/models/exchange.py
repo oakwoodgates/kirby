@@ -21,7 +21,7 @@ class Exchange(Base, TimestampMixin):
         ccxt_id: CCXT exchange identifier (nullable for custom integrations)
         is_ccxt_supported: Whether the exchange is supported by CCXT
         custom_integration_class: Python path to custom collector class (if not CCXT)
-        metadata: Additional exchange-specific metadata (rate limits, capabilities, etc.)
+        exchange_metadata: Additional exchange-specific metadata (rate limits, capabilities, etc.)
         created_at: When the exchange was added
         updated_at: When the exchange was last modified
     """
@@ -55,7 +55,7 @@ class Exchange(Base, TimestampMixin):
         comment="Python path to custom collector class (e.g., 'src.collectors.custom.MyCollector')",
     )
 
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    exchange_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
         comment="Exchange-specific metadata (rate limits, capabilities, etc.)",

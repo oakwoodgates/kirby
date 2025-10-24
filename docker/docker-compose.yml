@@ -4,6 +4,8 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     container_name: kirby_timescaledb
+    env_file:
+      - ../.env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-kirby}
       POSTGRES_USER: ${POSTGRES_USER:-kirby_user}

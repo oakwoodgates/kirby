@@ -210,9 +210,18 @@ __marimo__/
 # Docker override files
 docker-compose.override.yml
 
-# Alembic config (generated)
-alembic.ini
+# Docker volumes (if running locally)
+docker/volumes/
 
-# Local data
+# Local data and databases
 data/
 *.db
+*.sql
+
+# IDE and editor files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

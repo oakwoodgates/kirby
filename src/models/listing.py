@@ -37,7 +37,7 @@ class Listing(Base, TimestampMixin):
         backfill_status: Status of historical data backfill
         backfill_progress: JSONB containing backfill progress details
         collector_config: JSONB containing collector configuration
-        metadata: Exchange-provided metadata for this listing
+        listing_metadata: Exchange-provided metadata for this listing
         created_at: When the listing was created
         updated_at: When the listing was last modified
         activated_at: When the listing was activated (data collection started)
@@ -100,7 +100,7 @@ class Listing(Base, TimestampMixin):
         comment="Collector configuration (intervals, data types, polling frequency)",
     )
 
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    listing_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
         comment="Exchange-provided metadata (leverage, decimals, min_size, etc.)",
