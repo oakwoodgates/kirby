@@ -29,25 +29,19 @@ echo ""
 
 # Step 2: Build Docker images
 echo "Step 2: Building Docker images..."
-cd docker
-docker compose -f docker-compose.prod.yml build --no-cache
-cd ..
+docker compose -f docker/docker-compose.prod.yml --env-file .env build --no-cache
 echo "✓ Images built"
 echo ""
 
 # Step 3: Stop existing containers
 echo "Step 3: Stopping existing containers..."
-cd docker
-docker compose -f docker-compose.prod.yml down
-cd ..
+docker compose -f docker/docker-compose.prod.yml --env-file .env down
 echo "✓ Containers stopped"
 echo ""
 
 # Step 4: Start new containers
 echo "Step 4: Starting new containers..."
-cd docker
-docker compose -f docker-compose.prod.yml up -d
-cd ..
+docker compose -f docker/docker-compose.prod.yml --env-file .env up -d
 echo "✓ Containers started"
 echo ""
 
