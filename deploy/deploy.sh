@@ -61,7 +61,7 @@ echo ""
 echo "Step 7: Would you like to seed the database? (y/n)"
 read -r response
 if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
-    docker exec kirby_api python scripts/seed_database.py
+    docker exec kirby_api bash -c "PYTHONPATH=/app python scripts/seed_database.py"
     echo "✓ Database seeded"
 else
     echo "Skipped database seeding"
