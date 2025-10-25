@@ -23,6 +23,7 @@ RUN poetry install --no-dev --no-interaction --no-ansi
 
 # Copy application code
 COPY src/ ./src/
+COPY scripts/ ./scripts/
 COPY migrations/ ./migrations/
 COPY alembic.ini.template ./alembic.ini
 
