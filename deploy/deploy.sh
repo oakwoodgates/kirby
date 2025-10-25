@@ -15,8 +15,10 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
-# Load environment variables
+# Load and export environment variables
+set -a
 source .env
+set +a
 
 echo "Environment: $ENVIRONMENT"
 echo ""
@@ -74,9 +76,7 @@ echo "Waiting 10 seconds for services to stabilize..."
 sleep 10
 
 echo "Container status:"
-cd docker
-docker compose -f docker-compose.prod.yml ps
-cd ..
+docker compose -f docker/docker-compose.prod.yml --env-file .env ps
 echo ""
 
 echo "API Health check:"
@@ -92,7 +92,8 @@ echo "  - TimescaleDB: localhost:5432"
 echo "  - API: http://localhost:${API_PORT}"
 echo ""
 echo "Useful commands:"
-echo "  - View logs: cd docker && docker compose -f docker-compose.prod.yml logs -f"
-echo "  - Stop services: cd docker && docker compose -f docker-compose.prod.yml down"
-echo "  - Restart services: cd docker && docker compose -f docker-compose.prod.yml restart"
+echo "  - View logs: docker compose -f docker/docker-compose.prod.yml --env-file .env logs -f"
+echo "  - Stop services: docker compose -f docker/docker-compose.prod.yml --env-file .env down"
+echo "  - Restart services: docker compose -f docker/docker-compose.prod.yml --env-file .env restart"
+echo "  - Check status: docker compose -f docker/docker-compose.prod.yml --env-file .env ps"
 echo ""

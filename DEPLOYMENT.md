@@ -177,8 +177,8 @@ ufw status
 
 ```bash
 su - kirby
-cd /opt/kirby/docker
-docker compose -f docker-compose.prod.yml ps
+cd /opt/kirby
+docker compose -f docker/docker-compose.prod.yml --env-file .env ps
 ```
 
 All containers should show status "Up".
@@ -218,8 +218,8 @@ Should return interval statistics for all listings.
 View collector logs to verify data collection:
 
 ```bash
-cd /opt/kirby/docker
-docker compose -f docker-compose.prod.yml logs -f collectors
+cd /opt/kirby
+docker compose -f docker/docker-compose.prod.yml --env-file .env logs -f collectors
 ```
 
 You should see:
@@ -301,34 +301,34 @@ certbot --nginx -d api.yourdomain.com
 ### View logs:
 
 ```bash
-cd /opt/kirby/docker
+cd /opt/kirby
 
 # All services
-docker compose -f docker-compose.prod.yml logs -f
+docker compose -f docker/docker-compose.prod.yml --env-file .env logs -f
 
 # Specific service
-docker compose -f docker-compose.prod.yml logs -f api
-docker compose -f docker-compose.prod.yml logs -f collectors
-docker compose -f docker-compose.prod.yml logs -f timescaledb
+docker compose -f docker/docker-compose.prod.yml --env-file .env logs -f api
+docker compose -f docker/docker-compose.prod.yml --env-file .env logs -f collectors
+docker compose -f docker/docker-compose.prod.yml --env-file .env logs -f timescaledb
 ```
 
 ### Restart services:
 
 ```bash
-cd /opt/kirby/docker
+cd /opt/kirby
 
 # Restart all
-docker compose -f docker-compose.prod.yml restart
+docker compose -f docker/docker-compose.prod.yml --env-file .env restart
 
 # Restart specific service
-docker compose -f docker-compose.prod.yml restart collectors
+docker compose -f docker/docker-compose.prod.yml --env-file .env restart collectors
 ```
 
 ### Stop services:
 
 ```bash
-cd /opt/kirby/docker
-docker compose -f docker-compose.prod.yml down
+cd /opt/kirby
+docker compose -f docker/docker-compose.prod.yml --env-file .env down
 ```
 
 ### Update deployment:
@@ -421,19 +421,19 @@ docker compose -f docker/docker-compose.prod.yml --env-file .env down -v
 docker ps
 
 # Check API logs
-cd /opt/kirby/docker
-docker compose -f docker-compose.prod.yml logs api
+cd /opt/kirby
+docker compose -f docker/docker-compose.prod.yml --env-file .env logs api
 
 # Restart API
-docker compose -f docker-compose.prod.yml restart api
+docker compose -f docker/docker-compose.prod.yml --env-file .env restart api
 ```
 
 ### Collectors not collecting data:
 
 ```bash
 # Check collector logs
-cd /opt/kirby/docker
-docker compose -f docker-compose.prod.yml logs collectors
+cd /opt/kirby
+docker compose -f docker/docker-compose.prod.yml --env-file .env logs collectors
 
 # Common issues:
 # - Network connectivity
@@ -441,7 +441,7 @@ docker compose -f docker-compose.prod.yml logs collectors
 # - Invalid listing configuration
 
 # Restart collectors
-docker compose -f docker-compose.prod.yml restart collectors
+docker compose -f docker/docker-compose.prod.yml --env-file .env restart collectors
 ```
 
 ### Database connection issues:
@@ -451,8 +451,8 @@ docker compose -f docker-compose.prod.yml restart collectors
 docker ps | grep timescaledb
 
 # Check database logs
-cd /opt/kirby/docker
-docker compose -f docker-compose.prod.yml logs timescaledb
+cd /opt/kirby
+docker compose -f docker/docker-compose.prod.yml --env-file .env logs timescaledb
 
 # Test connection
 docker exec kirby_timescaledb pg_isready -U kirby_user
@@ -499,7 +499,7 @@ Then redeploy:
 ## Support
 
 For issues or questions:
-- Check logs first: `docker compose -f docker-compose.prod.yml logs`
+- Check logs first: `docker compose -f docker/docker-compose.prod.yml --env-file .env logs`
 - Review this guide
 - Check GitHub issues: https://github.com/oakwoodgates/kirby/issues
 
