@@ -2,6 +2,7 @@ services:
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     container_name: kirby_timescaledb
+    env_file: ../.env
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-kirby}
       POSTGRES_USER: ${POSTGRES_USER:-kirby_user}
@@ -25,6 +26,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.api
     container_name: kirby_api
+    env_file: ../.env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kirby_user}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-kirby}
       ASYNCPG_URL: postgresql://${POSTGRES_USER:-kirby_user}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-kirby}
@@ -49,6 +51,7 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.collectors
     container_name: kirby_collectors
+    env_file: ../.env
     environment:
       ASYNCPG_URL: postgresql://${POSTGRES_USER:-kirby_user}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-kirby}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kirby_user}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-kirby}
