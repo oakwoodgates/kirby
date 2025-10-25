@@ -390,6 +390,30 @@ crontab -e
 
 ## Troubleshooting
 
+### POSTGRES_PASSWORD variable not set:
+
+If you see "POSTGRES_PASSWORD variable is not set" during deployment:
+
+```bash
+# 1. Ensure .env file exists in project root
+cd /opt/kirby
+ls -la .env
+
+# 2. Check if password is set
+cat .env | grep POSTGRES_PASSWORD
+# Should show: POSTGRES_PASSWORD=your_actual_password
+
+# 3. If it shows CHANGE_ME_TO_SECURE_PASSWORD, edit it:
+nano .env
+# Change the password to a real value, save and exit
+
+# 4. Clean up and redeploy
+docker compose -f docker/docker-compose.prod.yml --env-file .env down -v
+./deploy/deploy.sh
+```
+
+**Note:** The deploy.sh script automatically uses `--env-file .env` to load environment variables correctly.
+
 ### API not responding:
 
 ```bash
