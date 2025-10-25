@@ -13,23 +13,32 @@ Kirby ingests real-time and historical cryptocurrency market data from multiple 
 ✅ **Flexible Queries** - SQLAlchemy 2.0 async for complex API queries
 ✅ **Time-Series Optimized** - TimescaleDB hypertables with automatic partitioning and compression
 ✅ **Real-Time Data** - WebSocket-based collectors with auto-reconnection and gap detection
-✅ **Historical Backfill** - Automatic backfill of all available historical data when adding new listings
+✅ **Multi-Interval Support** - Collect 1m, 15m, 4h, 1d candles simultaneously with per-listing configuration
+✅ **Historical Backfill** - Automatic backfill with interval-specific batch sizing
 ✅ **Composable Listings** - Exchange + Coin + Type (perps/spot/futures) model
-✅ **Production-Ready** - Docker Compose deployment, structured logging, health monitoring
+✅ **Production-Ready** - Docker Compose deployment, structured logging, health monitoring, REST API
 
 ## Project Structure
 
 ```
 kirby/
 ├── src/
-│   ├── api/                      # FastAPI application (Phase 5)
+│   ├── api/                      # FastAPI application ✅
+│   │   ├── main.py               # FastAPI app
+│   │   └── routes/
+│   │       ├── health.py         # Health endpoints
+│   │       ├── listing.py        # Listing CRUD
+│   │       ├── candle.py         # Candle queries
+│   │       ├── funding_rate.py   # Funding rate queries
+│   │       ├── open_interest.py  # OI queries
+│   │       └── market.py         # Market & interval stats
 │   ├── backfill/                 # Historical data backfill ✅
 │   │   ├── base.py               # Abstract backfiller
-│   │   └── hyperliquid_backfiller.py
+│   │   └── hyperliquid_backfiller.py  # Multi-interval backfill
 │   ├── collectors/               # Real-time data collectors ✅
-│   │   ├── base.py               # Abstract collector with CCXT
-│   │   ├── hyperliquid_websocket.py  # WebSocket collector
-│   │   └── hyperliquid_polling.py    # REST fallback
+│   │   ├── base.py               # Multi-interval base collector
+│   │   ├── hyperliquid_websocket.py  # Multi-interval WebSocket
+│   │   └── hyperliquid_polling.py    # Multi-interval polling
 │   ├── models/                   # SQLAlchemy 2.0 async models ✅
 │   │   ├── base.py
 │   │   ├── exchange.py, coin.py, listing_type.py, listing.py
@@ -49,6 +58,7 @@ kirby/
 │   │   └── __init__.py
 │   └── utils/                    # Utilities ✅
 │       ├── logger.py             # Structured logging
+│       ├── interval_manager.py   # Multi-interval configuration
 │       └── __init__.py
 ├── migrations/                   # Alembic migrations ✅
 │   └── versions/
@@ -56,10 +66,17 @@ kirby/
 │       └── 20251024_1056_33cd00d7748f_add_backfill_tracking_table.py
 ├── scripts/                      # CLI utilities ✅
 │   ├── seed_database.py          # Seed initial data
-│   ├── test_collectors.py        # Test WebSocket collectors
-│   ├── run_backfill.py           # Production backfill orchestrator
-│   └── test_backfill.py          # Test backfill service
-├── docker-compose.yml            # TimescaleDB container ✅
+│   ├── run_backfill.py           # Multi-interval backfill orchestrator
+│   ├── test_deployment_readiness.py  # Pre-deployment tests
+│   ├── test_multi_interval_collectors.py  # Multi-interval collector tests
+│   └── test_backfill_multi_interval.py    # Multi-interval backfill tests
+├── docker/                       # Docker configuration ✅
+│   ├── docker-compose.yml        # Development setup
+│   ├── docker-compose.prod.yml   # Production setup
+│   ├── Dockerfile.api            # API container
+│   └── Dockerfile.collectors     # Collectors container
+├── deploy/                       # Deployment scripts ✅
+│   └── deploy.sh                 # Automated deployment script
 ├── alembic.ini                   # Alembic config ✅
 ├── pyproject.toml                # Poetry dependencies ✅
 ├── .env                          # Environment variables ✅
@@ -97,7 +114,9 @@ kirby/
 - `listings` - Tradeable markets (combination of above)
 
 #### Hypertables (Time-Series Data)
-- `candles` - OHLCV data (1m, 5m, 15m, 1h, 4h, 1d)
+- `candles` - OHLCV data with multi-interval support (1m, 15m, 4h, 1d, etc.)
+  - Composite primary key: `(listing_id, timestamp, interval)`
+  - Per-listing interval configuration (different intervals for different coins)
 - `funding_rates` - Funding rates for perpetuals
 - `open_interest` - Open interest snapshots
 - `trades` - Individual trades (optional, high-volume)
@@ -178,13 +197,17 @@ python scripts/run_backfill.py
 python scripts/test_backfill.py
 ```
 
-9. **Start the API server** (Phase 5 - Coming Soon)
+9. **Start the API server**
 ```bash
 # Development mode with auto-reload
 uvicorn src.api.main:app --reload --host 0.0.0.0 --port 8000
 
-# Production mode with Gunicorn
-gunicorn src.api.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+# Or production mode with Gunicorn
+gunicorn src.api.main:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+
+# Test API
+curl http://localhost:8000/api/v1/health
+curl http://localhost:8000/api/v1/market/intervals/overview
 ```
 
 ### Verify Installation
@@ -241,29 +264,36 @@ Client Application
 - Graceful shutdown on SIGTERM/SIGINT
 - Gap detection and backfill triggers
 
-## API Endpoints (Planned)
-
-### Listings
-- `POST /api/v1/listings` - Create new listing (triggers backfill)
-- `GET /api/v1/listings` - List all listings
-- `GET /api/v1/listings/{id}` - Get listing details
-- `PATCH /api/v1/listings/{id}` - Update listing config
-- `DELETE /api/v1/listings/{id}` - Deactivate listing
-
-### Market Data
-- `GET /api/v1/candles` - Query candles with filters
-- `GET /api/v1/funding-rates` - Query funding rates
-- `GET /api/v1/open-interest` - Query open interest
-- `GET /api/v1/market-snapshot` - Latest data for all listings
-
-### WebSocket Streaming
-- `WS /api/v1/stream/candles/{listing_id}` - Real-time candles
-- `WS /api/v1/stream/tickers` - Real-time ticker updates
+## API Endpoints
 
 ### Health & Monitoring
 - `GET /api/v1/health` - Overall system health
-- `GET /api/v1/health/collectors` - Per-collector status
-- `GET /api/v1/health/database` - Database stats
+- `GET /api/v1/health/database` - Database connection and stats
+- `GET /api/v1/health/detailed` - Detailed health with per-listing stats
+
+### Listings
+- `GET /api/v1/listings` - List all active listings
+- `GET /api/v1/listings/{id}` - Get listing details with exchange/coin/type info
+- `POST /api/v1/listings` - Create new listing (triggers backfill)
+- `PATCH /api/v1/listings/{id}` - Update listing configuration
+- `DELETE /api/v1/listings/{id}` - Deactivate listing
+
+### Market Data
+- `GET /api/v1/candles` - Query candles with filters (listing_id, interval, time range)
+- `GET /api/v1/candles/latest` - Latest candles across all listings for a given interval
+- `GET /api/v1/candles/{listing_id}/latest` - Latest candle for a specific listing
+- `GET /api/v1/funding-rates` - Query funding rates with filters
+- `GET /api/v1/funding-rates/latest` - Latest funding rates across all listings
+- `GET /api/v1/open-interest` - Query open interest with filters
+- `GET /api/v1/open-interest/latest` - Latest OI across all listings
+
+### Multi-Interval Monitoring (New!)
+- `GET /api/v1/market/{listing_id}/intervals` - Interval statistics for a specific listing
+- `GET /api/v1/market/intervals/overview` - Global interval coverage across all listings
+
+### WebSocket Streaming (Planned)
+- `WS /api/v1/stream/candles/{listing_id}` - Real-time candles
+- `WS /api/v1/stream/tickers` - Real-time ticker updates
 
 ## Development Status
 
@@ -298,32 +328,45 @@ Client Application
 ### ✅ Phase 4: Historical Backfill Service (Completed)
 - [x] BaseBackfiller abstract class
 - [x] HyperliquidBackfiller with CCXT REST API
+- [x] Multi-interval backfill support
+- [x] Interval-specific batch sizing (1m=500, 15m=672, 4h=42, 1d=7)
 - [x] Backfill tracking table (backfill_job)
-- [x] Batch processing (500-1000 records per request)
 - [x] Rate limiting (configurable delays)
 - [x] Progress monitoring and error handling
 - [x] Orchestrator script (run_backfill.py)
-- [x] Successfully tested: 4,320 candles in 16 seconds
+- [x] Successfully tested: 96 15m candles backfilled
 
-### 📋 Phase 5: FastAPI REST API (Next Priority)
-- [ ] API foundation (main.py, dependencies, middleware)
-- [ ] Health endpoints (system, database, collectors)
-- [ ] Candles endpoint with filters and pagination
-- [ ] Funding rates endpoint
-- [ ] Open interest endpoint
-- [ ] Listings CRUD endpoints
-- [ ] Market snapshot endpoint
-- [ ] Query optimization with SQLAlchemy
-- [ ] OpenAPI/Swagger documentation
-- [ ] Integration tests
+### ✅ Phase 5: FastAPI REST API (Completed)
+- [x] API foundation (main.py, dependencies, middleware)
+- [x] CORS configuration
+- [x] Health endpoints (system, database, detailed)
+- [x] Candles endpoint with filters and pagination
+- [x] Funding rates endpoint with filters
+- [x] Open interest endpoint with filters
+- [x] Listings CRUD endpoints
+- [x] Multi-interval monitoring endpoints
+- [x] Query optimization with SQLAlchemy
+- [x] OpenAPI/Swagger documentation (auto-generated)
+- [x] Comprehensive testing (5/5 deployment tests passing)
 
-### 📋 Phase 6: Production Deployment (Planned)
-- [x] Docker Compose configuration
-- [x] Environment configuration (.env)
-- [ ] Multi-stage Dockerfiles (optimized)
-- [ ] Production deployment to Digital Ocean
-- [ ] Nginx reverse proxy setup
-- [ ] SSL/TLS certificates (Let's Encrypt)
+### ✅ Phase 6: Multi-Interval Architecture (Completed)
+- [x] IntervalManager utility for centralized configuration
+- [x] Multi-interval collector support (1m, 15m, 4h, 1d)
+- [x] Parallel WebSocket subscriptions per interval
+- [x] Per-listing interval configuration
+- [x] Smart polling frequencies (50% of interval, min 10s)
+- [x] Composite primary key (listing_id, timestamp, interval)
+- [x] Integration tests (collectors and backfill verified)
+
+### ✅ Phase 7: Production Deployment (Ready)
+- [x] Docker Compose configuration (dev and production)
+- [x] Environment configuration (.env templates)
+- [x] Multi-stage Dockerfiles (API and collectors)
+- [x] Deployment scripts (automated deploy.sh)
+- [x] Comprehensive deployment guide (DEPLOYMENT.md)
+- [ ] Production deployment to Digital Ocean (in progress)
+- [ ] Nginx reverse proxy setup (optional)
+- [ ] SSL/TLS certificates (Let's Encrypt - optional)
 - [ ] Monitoring and alerting (logs, metrics)
 - [ ] Automated backups (pg_dump + S3)
 - [ ] CI/CD pipeline (GitHub Actions)
@@ -355,32 +398,55 @@ All configuration is managed via environment variables (loaded from `.env`):
 
 ## Deployment
 
-### Digital Ocean Droplet (Recommended for Phase 1-2)
+**Comprehensive deployment guide available in [DEPLOYMENT.md](DEPLOYMENT.md)**
 
-**Specs:** 4-8GB RAM, 2-4 vCPUs (~$24-48/month)
+### Quick Start - Digital Ocean Droplet
+
+**Recommended Specs:** 4GB RAM / 2 vCPU (~$24/month)
 
 ```bash
-# 1. SSH into droplet
-ssh root@your-droplet-ip
+# 1. Create droplet with Ubuntu 22.04 LTS
 
-# 2. Install Docker & Docker Compose
-apt update && apt install docker.io docker-compose -y
+# 2. SSH into droplet
+ssh root@YOUR_DROPLET_IP
 
-# 3. Clone repo and configure
-git clone <repo-url> /opt/kirby
-cd /opt/kirby
-cp .env.example .env
-nano .env  # Edit configuration
+# 3. Install Docker
+curl -fsSL https://get.docker.com | sh
+apt install docker-compose-plugin git -y
 
-# 4. Start services
-docker-compose up -d
+# 4. Clone repository
+mkdir -p /opt/kirby && cd /opt/kirby
+git clone https://github.com/oakwoodgates/kirby.git .
 
-# 5. Run migrations
-docker-compose exec api alembic upgrade head
+# 5. Configure environment
+cp .env.production .env
+nano .env  # Set POSTGRES_PASSWORD
 
-# 6. Check status
-docker-compose ps
+# 6. Deploy!
+chmod +x deploy/deploy.sh
+./deploy/deploy.sh
+
+# 7. Verify deployment
 curl http://localhost:8000/api/v1/health
+curl http://localhost:8000/api/v1/market/intervals/overview
+```
+
+### What Gets Deployed
+
+Three Docker containers:
+- **TimescaleDB** - Time-series database (port 5432)
+- **API** - FastAPI REST API with Gunicorn (port 8000)
+- **Collectors** - Real-time multi-interval data collection
+
+### Monitoring Collectors
+
+```bash
+# View collector logs
+cd /opt/kirby/docker
+docker compose -f docker-compose.prod.yml logs -f collectors
+
+# Check multi-interval data collection
+curl http://localhost:8000/api/v1/market/intervals/overview
 ```
 
 ### Digital Ocean App Platform (For Scaling)
