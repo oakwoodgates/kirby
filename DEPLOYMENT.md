@@ -1,767 +1,492 @@
-# Kirby Deployment Guide
+# Kirby - Digital Ocean Deployment Guide
 
-This guide covers deploying Kirby to production environments, with focus on Digital Ocean deployment.
+This guide will walk you through deploying the Kirby cryptocurrency data platform to Digital Ocean.
 
-## Table of Contents
+## Prerequisites
 
-1. [Local Development](#local-development)
-2. [Digital Ocean Droplet](#digital-ocean-droplet)
-3. [Digital Ocean App Platform](#digital-ocean-app-platform)
-4. [Production Checklist](#production-checklist)
-5. [Monitoring & Maintenance](#monitoring--maintenance)
-6. [Troubleshooting](#troubleshooting)
+- Digital Ocean account
+- SSH key added to your Digital Ocean account
+- Git installed locally
+- Access to the Kirby GitHub repository
 
----
+## Architecture Overview
 
-## Local Development
+The deployment consists of 3 Docker containers:
+- **TimescaleDB**: Time-series database for candle data
+- **API**: FastAPI REST API server
+- **Collectors**: WebSocket collectors for real-time data
 
-### Prerequisites
+## Step 1: Create Digital Ocean Droplet
 
-- Python 3.11+
-- Docker Desktop (Windows/Mac) or Docker + Docker Compose (Linux)
-- Poetry
+### Option A: Using the Digital Ocean Web Interface
 
-### Setup
+1. Log in to [Digital Ocean](https://cloud.digitalocean.com)
+2. Click **Create** → **Droplets**
+3. Choose configuration:
+   - **Image**: Ubuntu 22.04 LTS
+   - **Plan**: Basic
+   - **CPU options**: Regular (2 GB RAM / 1 CPU minimum, **4 GB RAM / 2 CPU recommended**)
+   - **Datacenter**: Choose closest to your location
+   - **Authentication**: SSH keys (select your key)
+   - **Hostname**: `kirby-production`
+4. Click **Create Droplet**
+5. Note your droplet's IP address
+
+### Option B: Using doctl CLI
 
 ```bash
-# Clone and install
-git clone <repo-url>
-cd kirby
-poetry install
-poetry shell
+# Install doctl (if not already installed)
+# macOS
+brew install doctl
 
-# Start database
-docker-compose up -d
+# Linux
+cd ~
+wget https://github.com/digitalocean/doctl/releases/download/v1.94.0/doctl-1.94.0-linux-amd64.tar.gz
+tar xf doctl-1.94.0-linux-amd64.tar.gz
+sudo mv doctl /usr/local/bin
 
-# Run migrations
-alembic upgrade head
+# Authenticate
+doctl auth init
 
-# Seed data
-python scripts/seed_database.py
+# Create droplet
+doctl compute droplet create kirby-production \
+  --image ubuntu-22-04-x64 \
+  --size s-2vcpu-4gb \
+  --region nyc1 \
+  --ssh-keys $(doctl compute ssh-key list --format ID --no-header | head -1)
 
-# Test collectors
-bash -c "PYTHONPATH=. python scripts/test_collectors.py"
+# Get IP address
+doctl compute droplet list
 ```
 
-### Development Workflow
+## Step 2: Initial Server Setup
+
+SSH into your droplet:
 
 ```bash
-# Start API (auto-reload)
-uvicorn src.api.main:app --reload --port 8000
-
-# Run collectors in separate terminal
-PYTHONPATH=. python scripts/test_collectors.py
-
-# Run backfill
-python scripts/run_backfill.py
-
-# View logs
-docker logs -f kirby_timescaledb
-
-# Access database
-docker exec -it kirby_timescaledb psql -U kirby_user -d kirby
+ssh root@YOUR_DROPLET_IP
 ```
 
----
-
-## Digital Ocean Droplet
-
-### Recommended Droplet Specs
-
-| Listings | RAM | vCPU | Disk | Monthly Cost |
-|----------|-----|------|------|--------------|
-| 2-10 | 4GB | 2 | 80GB | $24/mo |
-| 10-50 | 8GB | 4 | 160GB | $48/mo |
-| 50-100 | 16GB | 8 | 320GB | $96/mo |
-
-### Initial Server Setup
+### Update system and install dependencies:
 
 ```bash
-# 1. Create droplet
-# - Ubuntu 24.04 LTS
-# - Choose region closest to exchanges (US East for Hyperliquid)
-# - Add SSH key
-
-# 2. SSH into droplet
-ssh root@your-droplet-ip
-
-# 3. Update system
+# Update package list
 apt update && apt upgrade -y
 
-# 4. Install Docker
-apt install -y docker.io docker-compose
+# Install Docker
+curl -fsSL https://get.docker.com -o get-docker.sh
+sh get-docker.sh
 
-# 5. Install Python 3.11 and Poetry
-apt install -y python3.11 python3.11-venv python3-pip
-curl -sSL https://install.python-poetry.org | python3 -
+# Install Docker Compose
+apt install docker-compose-plugin -y
 
-# 6. Add poetry to PATH
-export PATH="/root/.local/bin:$PATH"
-echo 'export PATH="/root/.local/bin:$PATH"' >> ~/.bashrc
+# Install Git
+apt install git -y
 
-# 7. Create non-root user (recommended)
+# Create application user
 useradd -m -s /bin/bash kirby
 usermod -aG docker kirby
+
+# Create app directory
+mkdir -p /opt/kirby
+chown kirby:kirby /opt/kirby
+```
+
+## Step 3: Clone Repository
+
+Switch to kirby user and clone the repository:
+
+```bash
+# Switch to kirby user
 su - kirby
+
+# Clone repository
+cd /opt/kirby
+git clone https://github.com/oakwoodgates/kirby.git .
+
+# Verify files
+ls -la
 ```
 
-### Application Deployment
+## Step 4: Configure Environment
+
+Create production environment file:
 
 ```bash
-# 1. Clone repository
-cd /opt
-git clone <repo-url> kirby
-cd kirby
-chown -R kirby:kirby /opt/kirby
+# Copy production template
+cp .env.production .env
 
-# 2. Configure environment
-cp .env .env.production
-nano .env.production
-
-# Update these values:
-# - DATABASE_URL (use production credentials)
-# - LOG_LEVEL=WARNING
-# - LOG_FORMAT=json
-# - ENVIRONMENT=production
-
-# 3. Install dependencies
-poetry install --no-dev --no-root
-
-# 4. Start database
-docker-compose up -d
-
-# Wait for database to be ready
-sleep 10
-
-# 5. Run migrations
-poetry run alembic upgrade head
-
-# 6. Seed initial data
-poetry run python scripts/seed_database.py
-
-# 7. Run initial backfill (optional, can take time)
-# For 30 days of data:
-poetry run python scripts/run_backfill.py
+# Edit environment file
+nano .env
 ```
 
-### Systemd Services
-
-Create systemd services for automatic startup and restart.
-
-#### Collector Service
+Update the following values in `.env`:
 
 ```bash
-# Create service file
-sudo nano /etc/systemd/system/kirby-collectors.service
+# IMPORTANT: Change this password!
+POSTGRES_PASSWORD=YOUR_SECURE_PASSWORD_HERE
+
+# Optional: Adjust these if needed
+API_PORT=8000
+API_WORKERS=2
+LOG_LEVEL=INFO
 ```
 
-```ini
-[Unit]
-Description=Kirby Data Collectors
-After=network.target docker.service
-Requires=docker.service
+Press `Ctrl+X`, then `Y`, then `Enter` to save.
 
-[Service]
-Type=simple
-User=kirby
-WorkingDirectory=/opt/kirby
-Environment="PATH=/home/kirby/.local/bin:/usr/local/bin:/usr/bin:/bin"
-Environment="PYTHONPATH=/opt/kirby"
-ExecStart=/home/kirby/.local/bin/poetry run python scripts/test_collectors.py
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
+## Step 5: Deploy Application
 
-[Install]
-WantedBy=multi-user.target
-```
-
-#### API Service (Phase 5)
+Run the deployment script:
 
 ```bash
-sudo nano /etc/systemd/system/kirby-api.service
+cd /opt/kirby
+chmod +x deploy/deploy.sh
+./deploy/deploy.sh
 ```
 
-```ini
-[Unit]
-Description=Kirby API Server
-After=network.target docker.service
-Requires=docker.service
+The script will:
+1. Pull latest code
+2. Build Docker images
+3. Start containers
+4. Run database migrations
+5. Optionally seed the database
+6. Verify services are running
 
-[Service]
-Type=simple
-User=kirby
-WorkingDirectory=/opt/kirby
-Environment="PATH=/home/kirby/.local/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=/home/kirby/.local/bin/poetry run gunicorn src.api.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
+**When prompted to seed the database, answer `y` (yes) on first deployment.**
 
-[Install]
-WantedBy=multi-user.target
-```
+## Step 6: Configure Firewall
 
-#### Enable and Start Services
+Set up UFW firewall:
 
 ```bash
-# Reload systemd
-sudo systemctl daemon-reload
+# Exit kirby user back to root
+exit
 
-# Enable services (start on boot)
-sudo systemctl enable kirby-collectors
-sudo systemctl enable kirby-api
+# Configure firewall
+ufw allow OpenSSH
+ufw allow 8000/tcp  # API port
+ufw --force enable
 
-# Start services
-sudo systemctl start kirby-collectors
-sudo systemctl start kirby-api
-
-# Check status
-sudo systemctl status kirby-collectors
-sudo systemctl status kirby-api
-
-# View logs
-sudo journalctl -u kirby-collectors -f
-sudo journalctl -u kirby-api -f
+# Verify firewall status
+ufw status
 ```
 
-### Nginx Reverse Proxy (Optional)
+## Step 7: Verify Deployment
+
+### Check container status:
 
 ```bash
-# Install nginx
-sudo apt install -y nginx
-
-# Create config
-sudo nano /etc/nginx/sites-available/kirby
+su - kirby
+cd /opt/kirby/docker
+docker compose -f docker-compose.prod.yml ps
 ```
+
+All containers should show status "Up".
+
+### Check API health:
+
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+Should return:
+```json
+{
+  "status": "ok",
+  "timestamp": "..."
+}
+```
+
+### Check database health:
+
+```bash
+curl http://localhost:8000/api/v1/health/database
+```
+
+Should return database stats with candle counts.
+
+### Check multi-interval stats:
+
+```bash
+curl http://localhost:8000/api/v1/market/intervals/overview
+```
+
+Should return interval statistics for all listings.
+
+## Step 8: Monitor Collectors
+
+View collector logs to verify data collection:
+
+```bash
+cd /opt/kirby/docker
+docker compose -f docker-compose.prod.yml logs -f collectors
+```
+
+You should see:
+- WebSocket connections established
+- Candle data being received for all intervals (1m, 15m, 4h, 1d)
+- Data being stored to database
+
+Press `Ctrl+C` to stop viewing logs.
+
+## Step 9: Optional - Run Backfill
+
+To backfill historical data:
+
+```bash
+# Enter API container
+docker exec -it kirby_api bash
+
+# Run backfill for last 30 days
+python scripts/run_backfill.py \
+  --listing-ids 1 2 \
+  --data-types candles \
+  --days 30
+
+# Exit container
+exit
+```
+
+## Step 10: Set Up Domain (Optional)
+
+If you want to access the API via a domain name:
+
+### Install Nginx:
+
+```bash
+# As root
+apt install nginx -y
+
+# Configure Nginx
+nano /etc/nginx/sites-available/kirby
+```
+
+Add this configuration:
 
 ```nginx
 server {
     listen 80;
-    server_name your-domain.com;
+    server_name api.yourdomain.com;
 
-    # API endpoints
-    location /api/ {
+    location / {
         proxy_pass http://localhost:8000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-
-    # Health check
-    location /health {
-        proxy_pass http://localhost:8000/api/v1/health;
-    }
-
-    # Rate limiting
-    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=100r/m;
-    limit_req zone=api_limit burst=20 nodelay;
 }
 ```
 
-```bash
-# Enable site
-sudo ln -s /etc/nginx/sites-available/kirby /etc/nginx/sites-enabled/
-sudo nginx -t
-sudo systemctl restart nginx
-
-# Setup SSL with Let's Encrypt
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
-```
-
-### Firewall Configuration
+Enable the site:
 
 ```bash
-# Install UFW
-sudo apt install -y ufw
+ln -s /etc/nginx/sites-available/kirby /etc/nginx/sites-enabled/
+nginx -t
+systemctl restart nginx
 
-# Allow SSH
-sudo ufw allow 22/tcp
-
-# Allow HTTP/HTTPS (if using nginx)
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-
-# Allow API directly (if not using nginx)
-sudo ufw allow 8000/tcp
-
-# Enable firewall
-sudo ufw enable
-
-# Check status
-sudo ufw status
+# Allow HTTP through firewall
+ufw allow 'Nginx Full'
 ```
 
----
-
-## Digital Ocean App Platform
-
-For easier scaling and management, use DO App Platform.
-
-### Architecture
-
-- **Web Service**: FastAPI (auto-scaling, load balanced)
-- **Worker Service**: Data collectors (fixed instance count)
-- **Database**: Managed TimescaleDB (separate)
-
-### Setup
-
-1. **Create Managed Database**
+### Add SSL with Let's Encrypt (Recommended):
 
 ```bash
-# Via DO Console:
-# - Create Database → TimescaleDB
-# - Plan: 4GB RAM, 2 vCPU ($60/mo)
-# - Region: Same as app
-# - Enable automatic backups
+apt install certbot python3-certbot-nginx -y
+certbot --nginx -d api.yourdomain.com
 ```
 
-2. **Create App Spec** (`app.yaml`)
+## Management Commands
 
-```yaml
-name: kirby
-region: nyc
-
-# Database (managed)
-databases:
-  - engine: PG
-    name: kirby-db
-    version: "15"
-    production: true
-
-# API Service
-services:
-  - name: api
-    github:
-      repo: your-org/kirby
-      branch: main
-      deploy_on_push: true
-    build_command: poetry install --no-dev
-    run_command: gunicorn src.api.main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8080
-    environment_slug: python
-    instance_count: 2
-    instance_size_slug: basic-xs  # 1 vCPU, 1GB RAM
-    http_port: 8080
-    health_check:
-      http_path: /api/v1/health
-    envs:
-      - key: DATABASE_URL
-        scope: RUN_TIME
-        type: SECRET
-        value: ${kirby-db.DATABASE_URL}
-      - key: ENVIRONMENT
-        value: production
-      - key: LOG_LEVEL
-        value: INFO
-
-# Collector Worker
-workers:
-  - name: collectors
-    github:
-      repo: your-org/kirby
-      branch: main
-    build_command: poetry install --no-dev
-    run_command: python scripts/test_collectors.py
-    environment_slug: python
-    instance_count: 1
-    instance_size_slug: basic-xxs  # 0.5 vCPU, 512MB RAM
-    envs:
-      - key: DATABASE_URL
-        scope: RUN_TIME
-        type: SECRET
-        value: ${kirby-db.DATABASE_URL}
-      - key: ENVIRONMENT
-        value: production
-```
-
-3. **Deploy**
+### View logs:
 
 ```bash
-# Install doctl
-snap install doctl
-doctl auth init
+cd /opt/kirby/docker
 
-# Deploy app
-doctl apps create --spec app.yaml
+# All services
+docker compose -f docker-compose.prod.yml logs -f
 
-# Update app
-doctl apps update <app-id> --spec app.yaml
-
-# View logs
-doctl apps logs <app-id> --type run
+# Specific service
+docker compose -f docker-compose.prod.yml logs -f api
+docker compose -f docker-compose.prod.yml logs -f collectors
+docker compose -f docker-compose.prod.yml logs -f timescaledb
 ```
 
----
-
-## Production Checklist
-
-### Pre-Deployment
-
-- [ ] Update `.env` with production values
-- [ ] Set `LOG_LEVEL=WARNING` or `INFO`
-- [ ] Set `LOG_FORMAT=json`
-- [ ] Configure `CORS_ORIGINS` with allowed domains
-- [ ] Review rate limiting settings
-- [ ] Test database migrations on staging
-- [ ] Run backfill for initial data
-
-### Security
-
-- [ ] Use strong database passwords (32+ chars)
-- [ ] Enable database SSL connections
-- [ ] Configure firewall (UFW or DO cloud firewall)
-- [ ] Set up SSH key authentication (disable password auth)
-- [ ] Enable automatic security updates
-- [ ] Use non-root user for application
-- [ ] Restrict Docker socket access
-- [ ] Set up fail2ban for SSH
-
-### Monitoring
-
-- [ ] Configure log aggregation (optional: Grafana Loki, ELK)
-- [ ] Set up database backups (daily, retained 7 days)
-- [ ] Monitor disk usage alerts (<80%)
-- [ ] Monitor memory usage alerts
-- [ ] Set up uptime monitoring (UptimeRobot, Pingdom)
-- [ ] Configure alerts (Discord webhook, email)
-
-### Performance
-
-- [ ] Enable TimescaleDB compression policies
-- [ ] Set up retention policies (optional: drop data >1 year)
-- [ ] Optimize PostgreSQL settings for workload
-- [ ] Configure connection pooling limits
-- [ ] Enable query logging for slow queries (>1s)
-
----
-
-## Monitoring & Maintenance
-
-### Health Checks
+### Restart services:
 
 ```bash
-# Check API health
-curl http://localhost:8000/api/v1/health
+cd /opt/kirby/docker
 
-# Check database connection
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "SELECT 1"
+# Restart all
+docker compose -f docker-compose.prod.yml restart
 
-# Check collector status
-sudo systemctl status kirby-collectors
-
-# Check disk usage
-df -h
-
-# Check memory usage
-free -h
-
-# Check Docker containers
-docker ps
-docker stats
+# Restart specific service
+docker compose -f docker-compose.prod.yml restart collectors
 ```
 
-### Database Maintenance
+### Stop services:
 
 ```bash
-# Backup database
+cd /opt/kirby/docker
+docker compose -f docker-compose.prod.yml down
+```
+
+### Update deployment:
+
+```bash
+cd /opt/kirby
+git pull origin main
+./deploy/deploy.sh
+```
+
+### Access database:
+
+```bash
+docker exec -it kirby_timescaledb psql -U kirby_user -d kirby
+
+# Example queries
+SELECT interval, COUNT(*) FROM candle GROUP BY interval;
+SELECT * FROM listing;
+\q  # to exit
+```
+
+### Backup database:
+
+```bash
 docker exec kirby_timescaledb pg_dump -U kirby_user kirby > backup_$(date +%Y%m%d).sql
-
-# Restore database
-cat backup_20251024.sql | docker exec -i kirby_timescaledb psql -U kirby_user kirby
-
-# Vacuum analyze (monthly)
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "VACUUM ANALYZE;"
-
-# Check table sizes
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "
-SELECT
-    schemaname,
-    tablename,
-    pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size
-FROM pg_tables
-WHERE schemaname = 'public'
-ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
-"
-
-# Check compression stats
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "
-SELECT * FROM timescaledb_information.compressed_chunk_stats;
-"
 ```
 
-### Log Management
+### Restore database:
 
 ```bash
-# View collector logs (systemd)
-sudo journalctl -u kirby-collectors -f
-
-# View API logs
-sudo journalctl -u kirby-api -f
-
-# View last 100 lines
-sudo journalctl -u kirby-collectors -n 100
-
-# View logs from last hour
-sudo journalctl -u kirby-collectors --since "1 hour ago"
-
-# Search logs
-sudo journalctl -u kirby-collectors | grep ERROR
-
-# Rotate logs (prevent disk fill)
-sudo nano /etc/systemd/journald.conf
-# Set: SystemMaxUse=1G
-sudo systemctl restart systemd-journald
+docker exec -i kirby_timescaledb psql -U kirby_user kirby < backup_20241024.sql
 ```
 
-### Backfill Management
+## Monitoring
+
+### Check disk usage:
 
 ```bash
-# Check backfill job status
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "
-SELECT
-    id,
-    listing_id,
-    data_type,
-    status,
-    records_fetched,
-    start_date,
-    end_date,
-    created_at
-FROM backfill_job
-ORDER BY created_at DESC
-LIMIT 10;
-"
-
-# Retry failed backfill jobs
-python scripts/run_backfill.py --retry-failed
+df -h
+docker system df
 ```
 
----
+### Check memory usage:
+
+```bash
+free -h
+docker stats --no-stream
+```
+
+### Set up automatic updates (Optional):
+
+```bash
+# Create update cron job
+crontab -e
+
+# Add this line to pull updates daily at 3 AM
+0 3 * * * cd /opt/kirby && git pull origin main && ./deploy/deploy.sh > /tmp/kirby-deploy.log 2>&1
+```
 
 ## Troubleshooting
 
-### Collectors Not Running
+### API not responding:
 
 ```bash
-# Check service status
-sudo systemctl status kirby-collectors
-
-# View logs
-sudo journalctl -u kirby-collectors -n 50
-
-# Restart service
-sudo systemctl restart kirby-collectors
-
-# Check database connection
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "SELECT 1"
-
-# Test collector manually
-cd /opt/kirby
-poetry run python scripts/test_collectors.py
-```
-
-### High Memory Usage
-
-```bash
-# Check memory usage
-free -h
-docker stats
-
-# Check PostgreSQL connections
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "
-SELECT count(*) FROM pg_stat_activity;
-"
-
-# Reduce connection pool size in .env
-DB_POOL_MAX_SIZE=10  # Down from 20
-DB_POOL_MIN_SIZE=5   # Down from 10
-
-# Restart services
-sudo systemctl restart kirby-collectors
-sudo systemctl restart kirby-api
-```
-
-### Database Connection Errors
-
-```bash
-# Check container status
+# Check if container is running
 docker ps
 
-# Check PostgreSQL logs
-docker logs kirby_timescaledb --tail 100
+# Check API logs
+cd /opt/kirby/docker
+docker compose -f docker-compose.prod.yml logs api
+
+# Restart API
+docker compose -f docker-compose.prod.yml restart api
+```
+
+### Collectors not collecting data:
+
+```bash
+# Check collector logs
+cd /opt/kirby/docker
+docker compose -f docker-compose.prod.yml logs collectors
+
+# Common issues:
+# - Network connectivity
+# - Database connection
+# - Invalid listing configuration
+
+# Restart collectors
+docker compose -f docker-compose.prod.yml restart collectors
+```
+
+### Database connection issues:
+
+```bash
+# Check if database is running
+docker ps | grep timescaledb
+
+# Check database logs
+cd /opt/kirby/docker
+docker compose -f docker-compose.prod.yml logs timescaledb
 
 # Test connection
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "SELECT version();"
-
-# Restart database
-docker-compose restart
-
-# Check disk space (database may refuse connections if disk full)
-df -h
+docker exec kirby_timescaledb pg_isready -U kirby_user
 ```
 
-### Slow Queries
+### Out of disk space:
 
 ```bash
-# Enable query logging
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "
-ALTER SYSTEM SET log_min_duration_statement = 1000;
-SELECT pg_reload_conf();
-"
+# Clean up Docker
+docker system prune -a
 
-# View slow queries
-docker logs kirby_timescaledb | grep "duration:"
-
-# Check missing indexes
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "
-SELECT
-    schemaname,
-    tablename,
-    indexname,
-    idx_scan
-FROM pg_stat_user_indexes
-WHERE idx_scan = 0
-AND indexname NOT LIKE 'pg_toast%';
-"
+# Remove old logs
+journalctl --vacuum-time=7d
 ```
 
-### Disk Space Issues
+## Performance Tuning
 
+### For 4GB RAM Droplet:
+
+Default configuration should work well.
+
+### For 8GB+ RAM Droplet:
+
+Update `.env`:
 ```bash
-# Check disk usage
-df -h
-
-# Check database size
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "
-SELECT pg_size_pretty(pg_database_size('kirby'));
-"
-
-# Check table sizes
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "
-SELECT
-    tablename,
-    pg_size_pretty(pg_total_relation_size('public.'||tablename))
-FROM pg_tables
-WHERE schemaname = 'public'
-ORDER BY pg_total_relation_size('public.'||tablename) DESC;
-"
-
-# Manual compression
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "
-SELECT compress_chunk(i.show_chunks)
-FROM show_chunks('candle', older_than => INTERVAL '7 days') AS i;
-"
-
-# Delete old data (if needed)
-docker exec kirby_timescaledb psql -U kirby_user -d kirby -c "
-DELETE FROM candle WHERE timestamp < NOW() - INTERVAL '90 days';
-"
+API_WORKERS=4  # Increase API workers
 ```
 
----
-
-## Updating the Application
-
+Then redeploy:
 ```bash
-# On the server
-cd /opt/kirby
-
-# Backup database first
-docker exec kirby_timescaledb pg_dump -U kirby_user kirby > backup_pre_update.sql
-
-# Pull latest code
-git pull origin main
-
-# Update dependencies
-poetry install --no-dev
-
-# Run any new migrations
-poetry run alembic upgrade head
-
-# Restart services
-sudo systemctl restart kirby-collectors
-sudo systemctl restart kirby-api
-
-# Check status
-sudo systemctl status kirby-collectors
-sudo systemctl status kirby-api
-
-# Monitor logs for errors
-sudo journalctl -u kirby-collectors -f
+./deploy/deploy.sh
 ```
 
----
+## Security Recommendations
 
-## Backup & Disaster Recovery
-
-### Automated Backups
-
-```bash
-# Create backup script
-sudo nano /opt/kirby/scripts/backup.sh
-```
-
-```bash
-#!/bin/bash
-BACKUP_DIR="/opt/kirby/backups"
-DATE=$(date +%Y%m%d_%H%M%S)
-RETENTION_DAYS=7
-
-# Create backup directory
-mkdir -p $BACKUP_DIR
-
-# Backup database
-docker exec kirby_timescaledb pg_dump -U kirby_user kirby | gzip > $BACKUP_DIR/kirby_$DATE.sql.gz
-
-# Upload to S3 (optional)
-# aws s3 cp $BACKUP_DIR/kirby_$DATE.sql.gz s3://your-bucket/backups/
-
-# Delete old backups
-find $BACKUP_DIR -name "kirby_*.sql.gz" -mtime +$RETENTION_DAYS -delete
-
-echo "Backup completed: kirby_$DATE.sql.gz"
-```
-
-```bash
-# Make executable
-chmod +x /opt/kirby/scripts/backup.sh
-
-# Add to crontab (daily at 2 AM)
-crontab -e
-```
-
-```cron
-0 2 * * * /opt/kirby/scripts/backup.sh >> /var/log/kirby-backup.log 2>&1
-```
-
-### Recovery
-
-```bash
-# Stop services
-sudo systemctl stop kirby-collectors
-sudo systemctl stop kirby-api
-
-# Restore database
-gunzip -c /opt/kirby/backups/kirby_20251024_020000.sql.gz | docker exec -i kirby_timescaledb psql -U kirby_user kirby
-
-# Run migrations (in case of version mismatch)
-cd /opt/kirby
-poetry run alembic upgrade head
-
-# Restart services
-sudo systemctl start kirby-collectors
-sudo systemctl start kirby-api
-```
-
----
+1. **Change default password**: Always use a strong, unique password for `POSTGRES_PASSWORD`
+2. **Enable firewall**: Only open necessary ports (SSH, API)
+3. **Regular updates**: Keep system and Docker images updated
+4. **Use SSH keys**: Disable password authentication for SSH
+5. **Enable SSL**: Use Let's Encrypt for HTTPS if using a domain
+6. **Backup regularly**: Set up automated database backups
+7. **Monitor logs**: Check logs regularly for suspicious activity
 
 ## Support
 
 For issues or questions:
-- GitHub Issues: [your-repo/issues]
-- Documentation: [ARCHITECTURE.md](ARCHITECTURE.md), [README.md](README.md)
-- Logs: `sudo journalctl -u kirby-collectors -f`
+- Check logs first: `docker compose -f docker-compose.prod.yml logs`
+- Review this guide
+- Check GitHub issues: https://github.com/oakwoodgates/kirby/issues
+
+## Next Steps
+
+After successful deployment:
+1. Monitor collectors for 24 hours to ensure stable data collection
+2. Set up monitoring/alerting (optional)
+3. Configure automatic backups
+4. Plan for scaling if needed
+
+---
+
+**Congratulations! Your Kirby instance is now running on Digital Ocean!**
