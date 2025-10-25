@@ -11,13 +11,14 @@ Provides common functionality for all collectors:
 import asyncio
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional
 
 import ccxt.async_support as ccxt
 
 from src.db.asyncpg_pool import get_pool
 from src.db.writer import DataWriter
 from src.utils import get_logger
+from src.utils.interval_manager import IntervalManager
 
 
 class BaseCollector(ABC):
@@ -26,10 +27,13 @@ class BaseCollector(ABC):
 
     Each collector is responsible for:
     1. Connecting to an exchange (via CCXT or custom WebSocket)
-    2. Fetching/streaming market data
+    2. Fetching/streaming market data across multiple intervals
     3. Writing data to TimescaleDB via DataWriter
     4. Handling errors and reconnections
     5. Sending periodic heartbeats
+
+    Supports collecting multiple candle intervals (1m, 15m, 4h, etc.)
+    simultaneously with optimal polling frequencies per interval.
     """
 
     def __init__(
@@ -37,6 +41,7 @@ class BaseCollector(ABC):
         exchange_name: str,
         listing_id: int,
         symbol: str,
+        intervals: List[str] = None,
         heartbeat_interval: int = 30,
         max_reconnect_attempts: int = 10,
         reconnect_delay: int = 5,
@@ -48,6 +53,7 @@ class BaseCollector(ABC):
             exchange_name: Exchange identifier (e.g., 'hyperliquid', 'binance')
             listing_id: Database listing ID for this market
             symbol: CCXT symbol format (e.g., 'BTC/USDC:USDC')
+            intervals: List of candle intervals to collect (e.g., ['1m', '15m', '4h'])
             heartbeat_interval: Seconds between heartbeat logs
             max_reconnect_attempts: Maximum reconnection attempts (0 = infinite)
             reconnect_delay: Initial delay between reconnections (exponential backoff)
@@ -58,6 +64,16 @@ class BaseCollector(ABC):
         self.heartbeat_interval = heartbeat_interval
         self.max_reconnect_attempts = max_reconnect_attempts
         self.reconnect_delay = reconnect_delay
+
+        # Validate and store intervals
+        if intervals is None:
+            intervals = ["1m"]  # Default to 1-minute candles
+        self.intervals = IntervalManager.validate_intervals(intervals)
+
+        # Track last candle timestamp per interval
+        self.last_candle_timestamps: Dict[str, Optional[datetime]] = {
+            interval: None for interval in self.intervals
+        }
 
         self.logger = get_logger(f"{__name__}.{exchange_name}.{symbol}")
         self.ccxt_exchange: Optional[ccxt.Exchange] = None
@@ -73,7 +89,11 @@ class BaseCollector(ABC):
         Initialize database connection and CCXT exchange.
         Must be called before start().
         """
-        self.logger.info(f"Initializing collector for {self.exchange_name} {self.symbol}")
+        intervals_str = IntervalManager.format_interval_list(self.intervals)
+        self.logger.info(
+            f"Initializing collector for {self.exchange_name} {self.symbol} "
+            f"(intervals: {intervals_str})"
+        )
 
         # Get database pool and create writer
         pool = get_pool()

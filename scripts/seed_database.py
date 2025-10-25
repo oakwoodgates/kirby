@@ -214,7 +214,7 @@ async def seed_listings(
                 "type": "websocket",
                 "coin_name": "BTC",
                 "channels": ["candle", "l2Book", "activeAssetCtx"],
-                "candle_interval": "1m",
+                "candle_intervals": ["1m", "15m", "4h", "1d"],  # Multi-interval support
                 "fallback_to_polling": True,
             },
         },
@@ -228,7 +228,7 @@ async def seed_listings(
                 "type": "websocket",
                 "coin_name": "HYPE",
                 "channels": ["candle", "l2Book", "activeAssetCtx"],
-                "candle_interval": "1m",
+                "candle_intervals": ["1m", "15m", "4h", "1d"],  # Multi-interval support
                 "fallback_to_polling": True,
             },
         },

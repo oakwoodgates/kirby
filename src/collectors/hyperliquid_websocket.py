@@ -2,11 +2,12 @@
 Hyperliquid WebSocket collector for real-time market data.
 
 Uses Hyperliquid Python SDK's WebSocket support to subscribe to:
-- candle (1m interval) - Real-time OHLCV candlestick updates
+- candle (multiple intervals: 1m, 15m, 4h, 1d, etc.) - Real-time OHLCV candlestick updates
 - l2Book - Full order book snapshots with bid/ask depth
 - activeAssetCtx - Asset context containing funding rate, open interest, volume, prices
 
 This provides sub-second latency data delivery compared to polling.
+Each configured interval gets its own WebSocket subscription for real-time updates.
 """
 
 import asyncio
@@ -18,6 +19,7 @@ from typing import Any, Dict, Optional
 from hyperliquid.info import Info
 
 from src.collectors.base import BaseCollector
+from src.utils.interval_manager import IntervalManager
 
 
 class HyperliquidWebSocketCollector(BaseCollector):
@@ -25,9 +27,12 @@ class HyperliquidWebSocketCollector(BaseCollector):
     Hyperliquid perpetual futures collector using WebSocket subscriptions.
 
     Subscribes to real-time data streams for a single coin via:
-    - Candle updates (1m OHLCV)
+    - Candle updates (multiple intervals: 1m, 15m, 4h, 1d, etc.)
     - L2 order book snapshots
     - Active asset context (funding, OI, volumes, prices)
+
+    Each configured interval gets its own WebSocket subscription, allowing
+    real-time updates for all timeframes simultaneously.
     """
 
     def __init__(
@@ -44,7 +49,7 @@ class HyperliquidWebSocketCollector(BaseCollector):
             listing_id: Database listing ID
             symbol: CCXT symbol format (e.g., 'BTC/USDC:USDC') - used for REST fallback
             coin_name: Hyperliquid coin name (e.g., 'BTC') - used for WebSocket subscriptions
-            **kwargs: Additional args passed to BaseCollector
+            **kwargs: Additional args passed to BaseCollector (including 'intervals')
         """
         super().__init__(
             exchange_name='hyperliquid',
@@ -58,7 +63,7 @@ class HyperliquidWebSocketCollector(BaseCollector):
         self.loop: Optional[asyncio.AbstractEventLoop] = None  # Store event loop reference
 
         # Track last received data timestamps for monitoring
-        self.last_candle_time: Optional[datetime] = None
+        # Note: Per-interval candle timestamps are tracked in self.last_candle_timestamps (from BaseCollector)
         self.last_l2book_time: Optional[datetime] = None
         self.last_asset_ctx_time: Optional[datetime] = None
 
@@ -91,9 +96,10 @@ class HyperliquidWebSocketCollector(BaseCollector):
         # Subscribe to all channels
         await self._subscribe_all_channels()
 
+        intervals_str = IntervalManager.format_interval_list(self.intervals)
         self.logger.info(
             f"WebSocket subscriptions active for {self.coin_name} "
-            f"(candle, l2Book, activeAssetCtx)"
+            f"(intervals: {intervals_str}, l2Book, activeAssetCtx)"
         )
 
         # Keep the collector running - WebSocket messages come via callbacks
@@ -104,15 +110,17 @@ class HyperliquidWebSocketCollector(BaseCollector):
     async def _subscribe_all_channels(self) -> None:
         """
         Subscribe to all required WebSocket channels.
+        Subscribes to candles for each configured interval.
         """
         try:
-            # Subscribe to 1-minute candles
-            sub_id_candle = self.info.subscribe(
-                {"type": "candle", "coin": self.coin_name, "interval": "1m"},
-                callback=self._handle_candle,
-            )
-            self.subscription_ids['candle'] = sub_id_candle
-            self.logger.info(f"Subscribed to candle (sub_id={sub_id_candle})")
+            # Subscribe to candles for each interval
+            for interval in self.intervals:
+                sub_id = self.info.subscribe(
+                    {"type": "candle", "coin": self.coin_name, "interval": interval},
+                    callback=lambda msg, iv=interval: self._handle_candle(msg, iv),
+                )
+                self.subscription_ids[f'candle_{interval}'] = sub_id
+                self.logger.info(f"Subscribed to {interval} candle (sub_id={sub_id})")
 
             # Subscribe to L2 order book
             sub_id_l2book = self.info.subscribe(
@@ -134,9 +142,13 @@ class HyperliquidWebSocketCollector(BaseCollector):
             self.logger.error(f"Error subscribing to channels: {e}", exc_info=True)
             raise
 
-    def _handle_candle(self, message: Any) -> None:
+    def _handle_candle(self, message: Any, interval: str) -> None:
         """
-        Handle incoming candle (OHLCV) messages.
+        Handle incoming candle (OHLCV) messages for a specific interval.
+
+        Args:
+            message: WebSocket message from Hyperliquid
+            interval: Candle interval (e.g., '1m', '15m', '4h', '1d')
 
         Expected message format (from Hyperliquid docs):
         {
@@ -166,16 +178,17 @@ class HyperliquidWebSocketCollector(BaseCollector):
             # Extract timestamp (use start time 't')
             timestamp = datetime.fromtimestamp(data['t'] / 1000, tz=timezone.utc)
 
-            # Check if we've already processed this candle
-            if self.last_candle_time and timestamp <= self.last_candle_time:
-                self.logger.debug(f"Candle {timestamp} already processed, skipping")
+            # Check if we've already processed this candle for this interval
+            last_ts = self.last_candle_timestamps.get(interval)
+            if last_ts and timestamp <= last_ts:
+                self.logger.debug(f"{interval} candle {timestamp} already processed, skipping")
                 return
 
             # Prepare candle data for database
             candle_data = {
                 'listing_id': self.listing_id,
                 'timestamp': timestamp,
-                'interval': '1m',
+                'interval': interval,
                 'open': Decimal(str(data['o'])),
                 'high': Decimal(str(data['h'])),
                 'low': Decimal(str(data['l'])),
@@ -188,14 +201,15 @@ class HyperliquidWebSocketCollector(BaseCollector):
             if self.loop:
                 asyncio.run_coroutine_threadsafe(self._store_candle(candle_data), self.loop)
 
-            self.last_candle_time = timestamp
+            # Update timestamp for this interval
+            self.last_candle_timestamps[interval] = timestamp
             self.logger.info(
-                f"Received candle: {self.coin_name} @ {timestamp} | "
+                f"Received {interval} candle: {self.coin_name} @ {timestamp} | "
                 f"O:{data['o']} H:{data['h']} L:{data['l']} C:{data['c']} V:{data['v']}"
             )
 
         except Exception as e:
-            self.logger.error(f"Error handling candle message: {e}", exc_info=True)
+            self.logger.error(f"Error handling {interval} candle message: {e}", exc_info=True)
 
     async def _store_candle(self, candle_data: dict) -> None:
         """Store candle data in database."""
@@ -416,8 +430,10 @@ class HyperliquidWebSocketCollector(BaseCollector):
             for channel, sub_id in list(self.subscription_ids.items()):
                 try:
                     # Build unsubscribe payload based on channel type
-                    if channel == "candle":
-                        unsub_payload = {"type": "candle", "coin": self.coin_name, "interval": "1m"}
+                    if channel.startswith("candle_"):
+                        # Extract interval from channel name (e.g., "candle_1m" -> "1m")
+                        interval = channel.split("_", 1)[1]
+                        unsub_payload = {"type": "candle", "coin": self.coin_name, "interval": interval}
                     elif channel == "l2Book":
                         unsub_payload = {"type": "l2Book", "coin": self.coin_name}
                     elif channel == "activeAssetCtx":
@@ -441,11 +457,19 @@ class HyperliquidWebSocketCollector(BaseCollector):
     async def on_heartbeat(self) -> None:
         """
         Log health information on each heartbeat.
+        Shows last update time for each interval.
         """
-        last_candle = self.last_candle_time.strftime('%H:%M:%S') if self.last_candle_time else 'None'
+        # Build candle status for each interval
+        candle_status = []
+        for interval in self.intervals:
+            last_ts = self.last_candle_timestamps.get(interval)
+            ts_str = last_ts.strftime('%H:%M:%S') if last_ts else 'None'
+            candle_status.append(f"{interval}:{ts_str}")
+
         last_l2 = self.last_l2book_time.strftime('%H:%M:%S') if self.last_l2book_time else 'None'
         last_ctx = self.last_asset_ctx_time.strftime('%H:%M:%S') if self.last_asset_ctx_time else 'None'
 
+        candles_str = " ".join(candle_status)
         self.logger.info(
-            f"WS {self.coin_name} | Candle: {last_candle} | L2: {last_l2} | Ctx: {last_ctx}"
+            f"WS {self.coin_name} | Candles: {candles_str} | L2: {last_l2} | Ctx: {last_ctx}"
         )

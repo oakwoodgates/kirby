@@ -1,5 +1,8 @@
 """
 Hyperliquid backfiller for historical data ingestion using CCXT.
+
+Supports backfilling candles across multiple intervals (1m, 15m, 4h, 1d, etc.)
+with optimized batch sizes per interval.
 """
 
 import asyncio
@@ -8,6 +11,7 @@ from decimal import Decimal
 from typing import List
 
 from src.backfill.base import BaseBackfiller
+from src.utils.interval_manager import IntervalManager
 
 
 class HyperliquidBackfiller(BaseBackfiller):
@@ -47,22 +51,35 @@ class HyperliquidBackfiller(BaseBackfiller):
             **kwargs,
         )
 
-    async def backfill_candles(self) -> int:
+    async def backfill_candles(self, interval: str = "1m") -> int:
         """
-        Backfill historical 1-minute candle data.
+        Backfill historical candle data for a specific interval.
 
         Fetches candles in batches, respecting rate limits.
+        Uses interval-specific batch sizes for optimal performance:
+        - 1m: 500 candles (~8 hours)
+        - 15m: 672 candles (1 week)
+        - 4h: 42 candles (1 week)
+        - 1d: 7 candles (1 week)
+
+        Args:
+            interval: Candle interval (e.g., '1m', '15m', '4h', '1d')
 
         Returns:
             Number of candles fetched and stored
         """
+        # Get interval-specific batch size and convert to CCXT timeframe
+        batch_size = IntervalManager.get_backfill_batch_size(interval)
+        ccxt_timeframe = IntervalManager.get_ccxt_timeframe(interval)
+        interval_duration_sec = IntervalManager.get_interval_duration(interval)
+
         total_candles = 0
         current_time = int(self.start_date.timestamp() * 1000)
         end_time = int(self.end_date.timestamp() * 1000)
 
         self.logger.info(
-            f"Fetching candles from {self.start_date} to {self.end_date} "
-            f"(batch_size={self.batch_size})"
+            f"Fetching {interval} candles from {self.start_date} to {self.end_date} "
+            f"(batch_size={batch_size})"
         )
 
         while current_time < end_time:
@@ -70,14 +87,14 @@ class HyperliquidBackfiller(BaseBackfiller):
                 # Fetch batch of candles
                 ohlcv_data = await self.fetch_ohlcv_batch(
                     since=current_time,
-                    limit=self.batch_size,
-                    timeframe='1m',
+                    limit=batch_size,
+                    timeframe=ccxt_timeframe,
                 )
 
                 if not ohlcv_data:
-                    self.logger.warning(f"No candles returned for timestamp {current_time}")
-                    # Move forward by batch_size minutes if no data
-                    current_time += self.batch_size * 60 * 1000
+                    self.logger.warning(f"No {interval} candles returned for timestamp {current_time}")
+                    # Move forward by batch_size * interval duration if no data
+                    current_time += batch_size * interval_duration_sec * 1000
                     continue
 
                 # Convert to database format
@@ -87,7 +104,7 @@ class HyperliquidBackfiller(BaseBackfiller):
                     candles.append({
                         'listing_id': self.listing_id,
                         'timestamp': datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc),
-                        'interval': '1m',
+                        'interval': interval,
                         'open': Decimal(str(open_price)),
                         'high': Decimal(str(high)),
                         'low': Decimal(str(low)),
@@ -101,27 +118,28 @@ class HyperliquidBackfiller(BaseBackfiller):
                     await self.writer.insert_candles_batch(candles)
                     total_candles += len(candles)
                     self.logger.info(
-                        f"Stored {len(candles)} candles | "
+                        f"Stored {len(candles)} {interval} candles | "
                         f"Total: {total_candles} | "
                         f"Last: {candles[-1]['timestamp']}"
                     )
 
-                    # Move to next batch (use last candle timestamp + 1 minute)
+                    # Move to next batch (use last candle timestamp + interval duration)
                     last_timestamp_ms = ohlcv_data[-1][0]
-                    current_time = last_timestamp_ms + (60 * 1000)
+                    current_time = last_timestamp_ms + (interval_duration_sec * 1000)
                 else:
                     # No candles in batch, move forward
-                    current_time += self.batch_size * 60 * 1000
+                    current_time += batch_size * interval_duration_sec * 1000
 
                 # Rate limiting
                 await asyncio.sleep(self.rate_limit_delay)
 
             except Exception as e:
-                self.logger.error(f"Error fetching candles at {current_time}: {e}", exc_info=True)
+                self.logger.error(f"Error fetching {interval} candles at {current_time}: {e}", exc_info=True)
                 # Move forward on error to avoid infinite loop
-                current_time += self.batch_size * 60 * 1000
+                current_time += batch_size * interval_duration_sec * 1000
                 await asyncio.sleep(1)  # Extra delay on error
 
+        self.logger.info(f"Backfill complete: {total_candles} {interval} candles stored")
         return total_candles
 
     async def backfill_funding_rates(self) -> int:

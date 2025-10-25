@@ -2,9 +2,15 @@
 Hyperliquid collector using CCXT polling for market data.
 
 This implementation uses CCXT's REST API to poll for:
-- 1-minute candles (OHLCV)
+- Candles (OHLCV) across multiple intervals (1m, 15m, 4h, 1d, etc.)
 - Open interest
 - Market ticker data
+
+Each interval is collected independently with optimal polling frequencies:
+- 1m polls every 30s
+- 15m polls every 7.5 min
+- 4h polls every 2 hours
+- 1d polls every 12 hours
 
 For production use with high-frequency updates, consider implementing
 WebSocket connections using Hyperliquid's native API.
@@ -17,16 +23,23 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from src.collectors.base import BaseCollector
+from src.utils.interval_manager import IntervalManager
 
 
 class HyperliquidPollingCollector(BaseCollector):
     """
     Hyperliquid perpetual futures collector using CCXT polling (fallback).
 
-    Polls every 60 seconds for:
-    - Latest 1m candle
+    Collects data across multiple intervals in parallel:
+    - Candles (1m, 15m, 4h, 1d, etc.) - each polled at optimal frequency
     - Open interest
     - Market metadata (ticker)
+
+    Each interval runs independently with its own polling schedule:
+    - 1m candles polled every 30 seconds
+    - 15m candles polled every 7.5 minutes
+    - 4h candles polled every 2 hours
+    - 1d candles polled every 12 hours
 
     Note: This is the polling fallback. For real-time data, use HyperliquidWebSocketCollector.
     """
@@ -35,7 +48,6 @@ class HyperliquidPollingCollector(BaseCollector):
         self,
         listing_id: int,
         symbol: str,
-        poll_interval: int = 60,
         **kwargs,
     ):
         """
@@ -44,8 +56,7 @@ class HyperliquidPollingCollector(BaseCollector):
         Args:
             listing_id: Database listing ID
             symbol: CCXT symbol (e.g., 'BTC/USDC:USDC')
-            poll_interval: Seconds between polls (default 60 for 1m candles)
-            **kwargs: Additional args passed to BaseCollector
+            **kwargs: Additional args passed to BaseCollector (including 'intervals')
         """
         super().__init__(
             exchange_name='hyperliquid',
@@ -53,42 +64,90 @@ class HyperliquidPollingCollector(BaseCollector):
             symbol=symbol,
             **kwargs,
         )
-        self.poll_interval = poll_interval
-        self.last_candle_timestamp: Optional[datetime] = None
 
     async def run(self) -> None:
         """
         Main polling loop for Hyperliquid data collection.
+
+        Spawns parallel tasks:
+        - One task per interval for candle collection
+        - One task for open interest (polls every 60s)
+        - One task for market metadata (polls every 60s)
         """
-        self.logger.info(f"Starting Hyperliquid polling for {self.symbol} every {self.poll_interval}s")
+        intervals_str = IntervalManager.format_interval_list(self.intervals)
+        self.logger.info(f"Starting Hyperliquid polling for {self.symbol} (intervals: {intervals_str})")
+
+        # Create parallel tasks for each interval
+        tasks = []
+
+        # Spawn a task for each candle interval
+        for interval in self.intervals:
+            task = asyncio.create_task(
+                self._collect_interval(interval),
+                name=f"candle_{interval}"
+            )
+            tasks.append(task)
+
+        # Spawn tasks for other data types (poll every 60s)
+        tasks.append(asyncio.create_task(self._collect_open_interest_loop(), name="open_interest"))
+        tasks.append(asyncio.create_task(self._collect_market_metadata_loop(), name="market_metadata"))
+
+        # Wait for all tasks to complete (they run until is_running=False)
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _collect_interval(self, interval: str) -> None:
+        """
+        Collect candles for a specific interval on its own schedule.
+
+        Args:
+            interval: Candle interval (e.g., '1m', '15m', '4h', '1d')
+        """
+        poll_freq = IntervalManager.get_poll_frequency(interval)
+        self.logger.info(f"Starting {interval} candle collection (poll every {poll_freq}s)")
 
         while self.is_running:
             try:
-                # Fetch and store latest candle
-                await self._collect_candle()
-
-                # Fetch and store open interest
-                await self._collect_open_interest()
-
-                # Fetch and store market metadata
-                await self._collect_market_metadata()
-
+                await self._collect_candle(interval)
             except Exception as e:
-                self.logger.error(f"Error during collection cycle: {e}", exc_info=True)
+                self.logger.error(f"Error collecting {interval} candle: {e}", exc_info=True)
 
             # Wait for next poll
-            await asyncio.sleep(self.poll_interval)
+            await asyncio.sleep(poll_freq)
 
-    async def _collect_candle(self) -> None:
+    async def _collect_open_interest_loop(self) -> None:
+        """Poll open interest every 60 seconds."""
+        while self.is_running:
+            try:
+                await self._collect_open_interest()
+            except Exception as e:
+                self.logger.error(f"Error in OI loop: {e}", exc_info=True)
+            await asyncio.sleep(60)
+
+    async def _collect_market_metadata_loop(self) -> None:
+        """Poll market metadata every 60 seconds."""
+        while self.is_running:
+            try:
+                await self._collect_market_metadata()
+            except Exception as e:
+                self.logger.error(f"Error in metadata loop: {e}", exc_info=True)
+            await asyncio.sleep(60)
+
+    async def _collect_candle(self, interval: str) -> None:
         """
-        Fetch latest 1m candle and write to database.
+        Fetch latest candle for a specific interval and write to database.
+
+        Args:
+            interval: Candle interval (e.g., '1m', '15m', '4h', '1d')
         """
         try:
+            # Convert to CCXT timeframe format
+            ccxt_timeframe = IntervalManager.get_ccxt_timeframe(interval)
+
             # Fetch last 2 candles to ensure we have the most recent complete one
-            ohlcv = await self.fetch_ohlcv_historical(interval='1m', limit=2)
+            ohlcv = await self.fetch_ohlcv_historical(interval=ccxt_timeframe, limit=2)
 
             if not ohlcv:
-                self.logger.warning("No OHLCV data received")
+                self.logger.warning(f"No OHLCV data received for {interval}")
                 return
 
             # Get the most recent completed candle (second to last)
@@ -97,16 +156,17 @@ class HyperliquidPollingCollector(BaseCollector):
 
             timestamp = datetime.fromtimestamp(latest[0] / 1000, tz=timezone.utc)
 
-            # Skip if we've already processed this candle
-            if self.last_candle_timestamp and timestamp <= self.last_candle_timestamp:
-                self.logger.debug(f"Candle {timestamp} already processed")
+            # Skip if we've already processed this candle for this interval
+            last_ts = self.last_candle_timestamps.get(interval)
+            if last_ts and timestamp <= last_ts:
+                self.logger.debug(f"{interval} candle {timestamp} already processed")
                 return
 
             # Prepare candle data
             candle_data = {
                 'listing_id': self.listing_id,
                 'timestamp': timestamp,
-                'interval': '1m',
+                'interval': interval,
                 'open': Decimal(str(latest[1])),
                 'high': Decimal(str(latest[2])),
                 'low': Decimal(str(latest[3])),
@@ -118,14 +178,15 @@ class HyperliquidPollingCollector(BaseCollector):
             # Write to database
             await self.writer.insert_candles_batch([candle_data])
 
-            self.last_candle_timestamp = timestamp
+            # Update last timestamp for this interval
+            self.last_candle_timestamps[interval] = timestamp
             self.logger.info(
-                f"Stored candle: {self.symbol} @ {timestamp} | "
+                f"Stored {interval} candle: {self.symbol} @ {timestamp} | "
                 f"O:{latest[1]} H:{latest[2]} L:{latest[3]} C:{latest[4]} V:{latest[5]}"
             )
 
         except Exception as e:
-            self.logger.error(f"Error collecting candle: {e}", exc_info=True)
+            self.logger.error(f"Error collecting {interval} candle: {e}", exc_info=True)
             raise
 
     async def _collect_open_interest(self) -> None:
@@ -215,8 +276,15 @@ class HyperliquidPollingCollector(BaseCollector):
     async def on_heartbeat(self) -> None:
         """
         Log health information on each heartbeat.
+        Shows last candle timestamp for each interval.
         """
-        last_candle = self.last_candle_timestamp.strftime('%H:%M:%S') if self.last_candle_timestamp else 'None'
-        self.logger.info(
-            f"Hyperliquid {self.symbol} | Last candle: {last_candle} | Poll interval: {self.poll_interval}s"
-        )
+        # Build status for each interval
+        interval_status = []
+        for interval in self.intervals:
+            last_ts = self.last_candle_timestamps.get(interval)
+            ts_str = last_ts.strftime('%H:%M:%S') if last_ts else 'None'
+            poll_freq = IntervalManager.get_poll_frequency(interval)
+            interval_status.append(f"{interval}:{ts_str}({poll_freq}s)")
+
+        status_str = " | ".join(interval_status)
+        self.logger.info(f"Hyperliquid {self.symbol} | {status_str}")

@@ -2,6 +2,9 @@
 Backfill orchestrator script for historical data ingestion.
 
 This script runs backfill jobs for specified listings and date ranges.
+Supports multi-interval backfilling (1m, 15m, 4h, 1d, etc.) based on
+listing configuration.
+
 It tracks progress in the backfill_job table and supports resumable operations.
 """
 
@@ -12,6 +15,7 @@ from typing import List, Optional
 
 from src.backfill.hyperliquid_backfiller import HyperliquidBackfiller
 from src.db.asyncpg_pool import init_pool, close_pool, get_pool
+from src.utils.interval_manager import IntervalManager
 from src.utils.logger import get_logger, setup_logging
 
 logger = get_logger(__name__)
@@ -110,13 +114,13 @@ async def get_listing_info(listing_id: int) -> dict:
         listing_id: Database listing ID
 
     Returns:
-        Dictionary with listing info
+        Dictionary with listing info including collector_config
     """
     pool = get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
-            SELECT l.id, l.symbol, l.exchange_symbol, e.name as exchange_name
+            SELECT l.id, l.ccxt_symbol as symbol, l.collector_config, e.name as exchange_name
             FROM listing l
             JOIN exchange e ON l.exchange_id = e.id
             WHERE l.id = $1
@@ -134,17 +138,17 @@ async def run_backfill_for_listing(
     data_types: List[str],
     start_date: datetime,
     end_date: datetime,
-    batch_size: int = 1000,
+    intervals: Optional[List[str]] = None,
 ):
     """
-    Run backfill for a specific listing.
+    Run backfill for a specific listing across multiple intervals.
 
     Args:
         listing_id: Database listing ID
-        data_types: List of data types to backfill
+        data_types: List of data types to backfill ('candles', 'funding_rates', 'open_interest')
         start_date: Start date for backfill
         end_date: End date for backfill
-        batch_size: Number of records to fetch per batch
+        intervals: List of intervals to backfill (if None, read from collector_config)
     """
     # Get listing info
     listing_info = await get_listing_info(listing_id)
@@ -153,6 +157,22 @@ async def run_backfill_for_listing(
         f"{listing_info['symbol']} on {listing_info['exchange_name']}"
     )
 
+    # Get intervals from collector_config if not specified
+    if intervals is None and listing_info.get('collector_config'):
+        config = listing_info['collector_config']
+        # Try new format first (candle_intervals array), fallback to old format (candle_interval string)
+        intervals = config.get('candle_intervals') or [config.get('candle_interval', '1m')]
+        logger.info(f"Using intervals from config: {intervals}")
+    elif intervals is None:
+        # Default to 1m if no config
+        intervals = ['1m']
+        logger.info(f"No interval config found, defaulting to: {intervals}")
+
+    # Validate intervals
+    intervals = IntervalManager.validate_intervals(intervals)
+    intervals_str = IntervalManager.format_interval_list(intervals)
+    logger.info(f"Backfilling intervals: {intervals_str}")
+
     # Create backfiller instance
     if listing_info['exchange_name'].lower() == 'hyperliquid':
         backfiller = HyperliquidBackfiller(
@@ -160,56 +180,114 @@ async def run_backfill_for_listing(
             symbol=listing_info['symbol'],
             start_date=start_date,
             end_date=end_date,
-            batch_size=batch_size,
         )
     else:
         logger.error(f"Unsupported exchange: {listing_info['exchange_name']}")
         return
 
-    # Create job records for each data type
-    job_ids = {}
-    for data_type in data_types:
-        job_id = await create_backfill_job(
-            listing_id=listing_id,
-            data_type=data_type,
-            start_date=start_date,
-            end_date=end_date,
-        )
-        job_ids[data_type] = job_id
-        logger.info(f"Created backfill job {job_id} for {data_type}")
+    # Initialize backfiller
+    await backfiller.initialize()
 
-    # Run backfill
     try:
-        # Mark all jobs as running
-        for job_id in job_ids.values():
-            await update_backfill_job(job_id, 'running')
+        # Run backfill for each data type
+        for data_type in data_types:
+            if data_type == 'candles':
+                # Backfill each interval separately
+                for interval in intervals:
+                    # Create job record
+                    job_id = await create_backfill_job(
+                        listing_id=listing_id,
+                        data_type=f'candles_{interval}',  # Track per-interval jobs
+                        start_date=start_date,
+                        end_date=end_date,
+                    )
+                    logger.info(f"Created backfill job {job_id} for {interval} candles")
 
-        # Execute backfill
-        results = await backfiller.run_backfill(data_types=data_types)
+                    try:
+                        # Mark as running
+                        await update_backfill_job(job_id, 'running')
 
-        # Update job statuses
-        for data_type, records_count in results.items():
-            job_id = job_ids[data_type]
-            await update_backfill_job(
-                job_id=job_id,
-                status='completed',
-                records_fetched=records_count,
-            )
-            logger.info(
-                f"Backfill job {job_id} completed: "
-                f"{records_count} {data_type} records fetched"
-            )
+                        # Execute backfill for this interval
+                        count = await backfiller.backfill_candles(interval=interval)
 
-    except Exception as e:
-        logger.error(f"Backfill failed for listing {listing_id}: {e}", exc_info=True)
+                        # Mark as complete
+                        await update_backfill_job(
+                            job_id=job_id,
+                            status='completed',
+                            records_fetched=count,
+                        )
+                        logger.info(
+                            f"Backfill job {job_id} completed: "
+                            f"{count} {interval} candles fetched"
+                        )
 
-        # Mark jobs as failed
-        for data_type, job_id in job_ids.items():
-            await update_backfill_job(
-                job_id=job_id,
-                status='failed',
-                error_message=str(e),
-            )
+                    except Exception as e:
+                        logger.error(f"Backfill failed for {interval} candles: {e}", exc_info=True)
+                        await update_backfill_job(
+                            job_id=job_id,
+                            status='failed',
+                            error_message=str(e),
+                        )
+
+            elif data_type == 'funding_rates':
+                # Funding rates are not interval-specific
+                job_id = await create_backfill_job(
+                    listing_id=listing_id,
+                    data_type='funding_rates',
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                logger.info(f"Created backfill job {job_id} for funding_rates")
+
+                try:
+                    await update_backfill_job(job_id, 'running')
+                    count = await backfiller.backfill_funding_rates()
+                    await update_backfill_job(
+                        job_id=job_id,
+                        status='completed',
+                        records_fetched=count,
+                    )
+                    logger.info(f"Backfill job {job_id} completed: {count} funding rates fetched")
+
+                except Exception as e:
+                    logger.error(f"Backfill failed for funding rates: {e}", exc_info=True)
+                    await update_backfill_job(
+                        job_id=job_id,
+                        status='failed',
+                        error_message=str(e),
+                    )
+
+            elif data_type == 'open_interest':
+                # Open interest is not interval-specific
+                job_id = await create_backfill_job(
+                    listing_id=listing_id,
+                    data_type='open_interest',
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                logger.info(f"Created backfill job {job_id} for open_interest")
+
+                try:
+                    await update_backfill_job(job_id, 'running')
+                    count = await backfiller.backfill_open_interest()
+                    await update_backfill_job(
+                        job_id=job_id,
+                        status='completed',
+                        records_fetched=count,
+                    )
+                    logger.info(f"Backfill job {job_id} completed: {count} open interest records fetched")
+
+                except Exception as e:
+                    logger.error(f"Backfill failed for open interest: {e}", exc_info=True)
+                    await update_backfill_job(
+                        job_id=job_id,
+                        status='failed',
+                        error_message=str(e),
+                    )
+
+    finally:
+        # Cleanup backfiller
+        await backfiller.cleanup()
 
 
 async def main():
@@ -231,13 +309,13 @@ async def main():
         logger.info(f"Backfill date range: {start_date} to {end_date}")
 
         # Backfill for BTC (listing_id=1)
+        # Will automatically read intervals from collector_config
         logger.info("\n=== Backfilling BTC ===")
         await run_backfill_for_listing(
             listing_id=1,
             data_types=['candles', 'funding_rates'],  # Skip OI (not historical)
             start_date=start_date,
             end_date=end_date,
-            batch_size=1000,
         )
 
         # Backfill for HYPE (listing_id=2)
@@ -247,7 +325,6 @@ async def main():
             data_types=['candles', 'funding_rates'],
             start_date=start_date,
             end_date=end_date,
-            batch_size=1000,
         )
 
         logger.info("\n=== Backfill Complete ===")
