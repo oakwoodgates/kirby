@@ -183,7 +183,7 @@ async def main() -> None:
 
     # Initialize database
     await init_pool()
-    await init_db()
+    init_db()  # Not async, don't await
 
     # Set up signal handlers
     loop = asyncio.get_event_loop()
