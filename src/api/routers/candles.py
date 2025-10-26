@@ -98,8 +98,19 @@ async def get_candles(
         limit=limit,
     )
 
-    # Convert to response models
-    candle_responses = [CandleResponse.model_validate(candle) for candle in candles]
+    # Convert to response models (manually to avoid lazy loading the starlisting relationship)
+    candle_responses = [
+        CandleResponse(
+            time=candle.time,
+            open=candle.open,
+            high=candle.high,
+            low=candle.low,
+            close=candle.close,
+            volume=candle.volume,
+            num_trades=candle.num_trades,
+        )
+        for candle in candles
+    ]
 
     # Build metadata
     metadata = CandleMetadata(
