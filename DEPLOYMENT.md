@@ -279,10 +279,12 @@ docker compose run --rm collector alembic upgrade head
 ### Step 5.8: Sync Configuration
 
 ```bash
-docker compose exec collector python scripts/sync_config.py
+docker compose exec collector python -m scripts.sync_config
 ```
 
 You should see output confirming starlistings were created.
+
+**Note**: Use `-m scripts.sync_config` (Python module syntax) rather than `scripts/sync_config.py` to ensure proper imports.
 
 ---
 

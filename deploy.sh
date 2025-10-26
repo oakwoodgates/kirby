@@ -93,7 +93,7 @@ echo -e "${GREEN}[✓] Migrations completed${NC}"
 # Sync configuration
 echo ""
 echo "Syncing configuration..."
-docker compose exec -T collector python scripts/sync_config.py
+docker compose exec -T collector python -m scripts.sync_config
 echo -e "${GREEN}[✓] Configuration synced${NC}"
 
 # Check health
