@@ -252,19 +252,18 @@ You should see 3 services running:
 - `kirby-collector` (data collector)
 - `kirby-api` (REST API)
 
-### Step 5.6: View Logs
+### Step 5.6: Check Service Status
 
 ```bash
-# All services
-docker compose logs -f
-
-# Specific service
-docker compose logs -f collector
-docker compose logs -f api
-docker compose logs -f timescaledb
-
-# Press Ctrl+C to exit logs
+docker compose ps
 ```
+
+All three services should be running:
+- `kirby-timescaledb` (healthy)
+- `kirby-collector` (running, may show errors - this is normal!)
+- `kirby-api` (running, may show errors - this is normal!)
+
+**Note**: You may see errors in the logs about "relation does not exist" - this is expected because we haven't run database migrations yet. Don't worry, we'll fix this in the next step!
 
 ### Step 5.7: Run Database Migrations
 
@@ -282,9 +281,32 @@ docker compose run --rm collector alembic upgrade head
 docker compose exec collector python -m scripts.sync_config
 ```
 
-You should see output confirming starlistings were created.
+You should see output confirming starlistings were created (e.g., "Created 8 starlistings").
 
 **Note**: Use `-m scripts.sync_config` (Python module syntax) rather than `scripts/sync_config.py` to ensure proper imports.
+
+### Step 5.9: Restart Services (Important!)
+
+After running migrations and syncing config, restart the services so they can connect properly:
+
+```bash
+docker compose restart collector api
+```
+
+### Step 5.10: View Logs
+
+Now check that everything is working:
+
+```bash
+docker compose logs -f collector
+```
+
+You should see:
+- ✅ "Connected to Hyperliquid WebSocket"
+- ✅ "Subscribed to candles" (8 times - one for each trading pair)
+- ✅ "Collector connected and running"
+
+**Press Ctrl+C to exit logs**
 
 ---
 
