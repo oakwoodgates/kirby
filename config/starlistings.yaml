@@ -1,0 +1,49 @@
+# Kirby Starlistings Configuration
+# Define which exchange + coin + market type + intervals to collect data for
+
+version: "1.0"
+
+# Exchange definitions
+exchanges:
+  - name: hyperliquid
+    display_name: Hyperliquid
+    active: true
+
+# Coin definitions
+coins:
+  - symbol: BTC
+    name: Bitcoin
+    active: true
+  - symbol: SOL
+    name: Solana
+    active: true
+
+# Market type definitions
+market_types:
+  - name: perps
+    display_name: Perpetuals
+    active: true
+
+# Starlistings - combinations of exchange + coin + market_type + intervals
+starlistings:
+  # Hyperliquid BTC Perpetuals
+  - exchange: hyperliquid
+    coin: BTC
+    market_type: perps
+    intervals:
+      - 1m
+      - 15m
+      - 4h
+      - 1d
+    active: true
+
+  # Hyperliquid SOL Perpetuals
+  - exchange: hyperliquid
+    coin: SOL
+    market_type: perps
+    intervals:
+      - 1m
+      - 15m
+      - 4h
+      - 1d
+    active: true

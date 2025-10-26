@@ -205,3 +205,21 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Kirby specific
+# Docker volumes and data
+docker/data/
+.docker/
+
+# Database
+*.db
+*.sqlite
+
+# API keys and secrets
+*.pem
+*.key
+secrets/
+
+# Logs
+logs/
+*.log.*

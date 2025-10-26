@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # TimescaleDB - PostgreSQL with TimescaleDB extension
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: kirby-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kirby
+      POSTGRES_PASSWORD: kirby_password
+      POSTGRES_DB: kirby
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kirby"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kirby-network
+
+  # Kirby API Service
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: api
+    container_name: kirby-api
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://kirby:kirby_password@timescaledb:5432/kirby
+    ports:
+      - "8000:8000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - kirby-network
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --workers 4
+      "
+
+  # Kirby Collector Service
+  collector:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: collector
+    container_name: kirby-collector
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://kirby:kirby_password@timescaledb:5432/kirby
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      api:
+        condition: service_started
+    networks:
+      - kirby-network
+    command: python -m src.collectors.main
+
+volumes:
+  timescale_data:
+    driver: local
+
+networks:
+  kirby-network:
+    driver: bridge
