@@ -136,6 +136,13 @@ class Settings(BaseSettings):
         return str(self.database_url)
 
     @property
+    def asyncpg_url_str(self) -> str:
+        """Get database URL for asyncpg (without the +asyncpg driver suffix)."""
+        url_str = str(self.database_url)
+        # asyncpg expects postgresql:// not postgresql+asyncpg://
+        return url_str.replace("postgresql+asyncpg://", "postgresql://")
+
+    @property
     def is_development(self) -> bool:
         """Check if running in development environment."""
         return self.environment == "development"

@@ -18,12 +18,12 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
             # Use session here
             pass
     """
-    async with get_session() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
+    session = await get_session()
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()

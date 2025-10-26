@@ -60,9 +60,12 @@ class BaseCollector(ABC):
         self.logger.info("Initializing collector", exchange=self.exchange_name)
 
         # Load starlistings from database
-        async with get_session() as session:
+        session = await get_session()
+        try:
             starlisting_repo = StarlistingRepository(session)
             all_starlistings = await starlisting_repo.get_active_starlistings()
+        finally:
+            await session.close()
 
         # Filter for this exchange
         self.starlistings = [

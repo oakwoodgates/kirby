@@ -35,8 +35,12 @@ async def sync_config(config_path: str) -> None:
         logger.info("Loading configuration", config_path=config_path)
         config_loader = ConfigLoader(config_path)
 
-        async with get_session() as session:
+        session = await get_session()
+        try:
             await config_loader.sync_to_database(session)
+            await session.commit()
+        finally:
+            await session.close()
 
         logger.info("Configuration synced successfully")
 

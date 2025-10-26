@@ -8,6 +8,7 @@ from typing import Generic, List, TypeVar
 import asyncpg
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from .models import Candle, Coin, Exchange, Interval, MarketType, QuoteCurrency, Starlisting
 
@@ -185,11 +186,13 @@ class StarlistingRepository(BaseRepository[Starlisting]):
         result = await self.session.execute(
             select(Starlisting)
             .where(Starlisting.active == True)
-            .join(Starlisting.exchange)
-            .join(Starlisting.coin)
-            .join(Starlisting.quote_currency)
-            .join(Starlisting.market_type)
-            .join(Starlisting.interval)
+            .options(
+                selectinload(Starlisting.exchange),
+                selectinload(Starlisting.coin),
+                selectinload(Starlisting.quote_currency),
+                selectinload(Starlisting.market_type),
+                selectinload(Starlisting.interval),
+            )
         )
         return list(result.scalars().all())
 

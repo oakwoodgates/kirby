@@ -223,3 +223,6 @@ secrets/
 # Logs
 logs/
 *.log.*
+
+# Temporary test output
+test_output.txt

@@ -130,8 +130,12 @@ async def main() -> None:
     # Load and sync configuration
     try:
         config_loader = ConfigLoader()
-        async with get_session() as session:
+        session = await get_session()
+        try:
             await config_loader.sync_to_database(session)
+            await session.commit()
+        finally:
+            await session.close()
         logger.info("Configuration synced to database")
     except Exception as e:
         logger.error(
