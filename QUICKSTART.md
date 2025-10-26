@@ -58,10 +58,10 @@ docker compose logs -f
 curl http://localhost:8000/health
 
 # View configured trading pairs
-curl http://localhost:8000/api/v1/starlistings | jq
+curl http://localhost:8000/starlistings | jq
 
 # Wait 1-2 minutes, then check collected data
-curl http://localhost:8000/api/v1/candles?limit=5 | jq
+curl http://localhost:8000/candles?limit=5 | jq
 ```
 
 ## Common Commands
@@ -169,12 +169,12 @@ kirby/
 
 ## API Endpoints
 
+- `GET /` - Root endpoint with API info
 - `GET /health` - Health check
-- `GET /api/v1/starlistings` - List trading pairs
-- `GET /api/v1/candles` - Query candle data
-  - `?starlisting_id=1` - Filter by trading pair
-  - `?start_time=2025-10-26T00:00:00Z` - Filter by time
-  - `?limit=100` - Limit results
+- `GET /starlistings` - List trading pairs
+- `GET /candles/{exchange}/{coin}/{quote}/{market_type}/{interval}` - Query candle data
+  - Example: `/candles/hyperliquid/BTC/USD/perps/1m`
+  - Query params: `?start_time=2025-10-26T00:00:00Z&limit=100`
 
 Full API docs: http://localhost:8000/docs (when running)
 

@@ -309,7 +309,7 @@ Expected output:
 ### Step 6.2: Check Starlistings
 
 ```bash
-curl http://localhost:8000/api/v1/starlistings | jq
+curl http://localhost:8000/starlistings | jq
 ```
 
 You should see your configured trading pairs.
@@ -319,7 +319,7 @@ You should see your configured trading pairs.
 Wait 1-2 minutes for the collector to gather some candles, then check:
 
 ```bash
-curl "http://localhost:8000/api/v1/candles?limit=5" | jq
+curl "http://localhost:8000/candles?limit=5" | jq
 ```
 
 ### Step 6.4: Check Database Directly
