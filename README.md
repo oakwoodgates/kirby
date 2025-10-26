@@ -21,36 +21,58 @@ Kirby ingests real-time and historical market data from multiple cryptocurrency 
 
 ## Quick Start
 
-### Prerequisites
+### 🚀 Get Started in 5 Minutes
+
+```bash
+git clone https://github.com/YOUR_USERNAME/kirby.git
+cd kirby
+./deploy.sh
+```
+
+That's it! See **[QUICKSTART.md](QUICKSTART.md)** for details.
+
+### 📦 Prerequisites
 
 - Docker and Docker Compose
-- Python 3.11+ (for local development)
+- Python 3.13+ (for local development)
 
-### Run with Docker
+### 🐳 Docker Deployment
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/YOUR_USERNAME/kirby.git
 cd kirby
 
-# Copy environment template
+# Copy and configure environment
 cp .env.example .env
+nano .env  # Edit POSTGRES_PASSWORD
 
-# Start services
-cd docker
-docker-compose up -d
+# Build and start all services
+docker compose build
+docker compose up -d
 
 # Run database migrations
-docker-compose exec api alembic upgrade head
+docker compose exec collector alembic upgrade head
 
 # Sync configuration to database
-docker-compose exec api python -m scripts.sync_config
+docker compose exec collector python scripts/sync_config.py
 
-# View logs
-docker-compose logs -f
+# Check status
+docker compose ps
+docker compose logs -f
 ```
 
 The API will be available at `http://localhost:8000`
+
+### 📚 Deployment Guides
+
+- **[QUICKSTART.md](QUICKSTART.md)** - 5-minute quick start guide
+- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Complete Digital Ocean deployment guide
+  - Server setup and security hardening
+  - Production configuration
+  - Monitoring and maintenance
+  - Backup strategies
+  - Troubleshooting guide
 
 ---
 
@@ -468,41 +490,55 @@ Integration tests automatically create and use a separate test database (`kirby_
 
 ## Deployment
 
-### Production Deployment
+### 🌐 Production Deployment to Digital Ocean
 
-For production deployment on Digital Ocean or other platforms:
+Complete step-by-step guide: **[DEPLOYMENT.md](DEPLOYMENT.md)**
 
-1. **Build production images:**
-
+**Quick Deploy:**
 ```bash
-docker build -f docker/Dockerfile --target api -t kirby-api:latest .
-docker build -f docker/Dockerfile --target collector -t kirby-collector:latest .
+# On your Digital Ocean droplet:
+git clone https://github.com/YOUR_USERNAME/kirby.git
+cd kirby
+./deploy.sh
 ```
 
-2. **Set environment variables:**
-
-```bash
-ENVIRONMENT=production
-LOG_LEVEL=info
-DATABASE_URL=postgresql+asyncpg://user:pass@host:5432/kirby
-API_WORKERS=8
-```
-
-3. **Deploy with Docker Compose or Kubernetes**
-
-4. **Run migrations:**
-
-```bash
-docker run --rm kirby-api:latest alembic upgrade head
-```
-
-5. **Monitor logs and health endpoints**
+The deployment guide includes:
+1. ☁️ Digital Ocean Droplet setup ($12-24/month)
+2. 🔒 Server configuration and security hardening
+3. 🐳 Docker installation and configuration
+4. 🚀 One-command or manual deployment options
+5. 📊 Monitoring and maintenance procedures
+6. 🔐 Security: UFW firewall, fail2ban, SSH hardening
+7. 💾 Automated backup strategies
+8. 🔧 Comprehensive troubleshooting guide
 
 ### Environment-Specific Settings
 
-- **Development**: Auto-reload enabled, DEBUG logging, small pool sizes
-- **Staging**: Production-like settings, INFO logging
-- **Production**: Optimized pool sizes, JSON logging, monitoring enabled
+```bash
+# Development
+ENVIRONMENT=development
+LOG_LEVEL=debug
+DATABASE_POOL_SIZE=10
+
+# Production
+ENVIRONMENT=production
+LOG_LEVEL=info
+DATABASE_POOL_SIZE=20
+```
+
+### Production Checklist
+
+Before going live:
+- [ ] Changed default PostgreSQL password
+- [ ] Configured firewall (UFW)
+- [ ] Set up SSL/TLS for API (if public-facing)
+- [ ] Configured log rotation
+- [ ] Set up automated backups
+- [ ] Enabled fail2ban
+- [ ] Monitored services for 24 hours
+- [ ] Set up alerting (optional: Grafana, Prometheus)
+
+See full checklist in [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ---
 
