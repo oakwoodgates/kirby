@@ -164,7 +164,7 @@ sudo apt install -y git
 
 ```bash
 cd ~
-git clone https://github.com/YOUR_USERNAME/kirby.git
+git clone https://github.com/oakwoodgates/kirby.git
 cd kirby
 ```
 
@@ -726,7 +726,7 @@ Before going live, ensure:
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/YOUR_USERNAME/kirby/issues
+- GitHub Issues: https://github.com/oakwoodgates/kirby/issues
 - Check logs first: `docker compose logs`
 - Review [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues
 

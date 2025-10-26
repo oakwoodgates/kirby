@@ -12,7 +12,7 @@ Get Kirby up and running in 5 minutes!
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/kirby.git
+git clone https://github.com/oakwoodgates/kirby.git
 cd kirby
 
 # Run deployment script
@@ -197,7 +197,7 @@ Full API docs: http://localhost:8000/docs (when running)
 Issues? Check:
 1. `docker compose logs` for errors
 2. [DEPLOYMENT.md](DEPLOYMENT.md) troubleshooting section
-3. GitHub Issues: https://github.com/YOUR_USERNAME/kirby/issues
+3. GitHub Issues: https://github.com/oakwoodgates/kirby/issues
 
 ---
 

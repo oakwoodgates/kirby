@@ -24,7 +24,7 @@ Kirby ingests real-time and historical market data from multiple cryptocurrency 
 ### 🚀 Get Started in 5 Minutes
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/kirby.git
+git clone https://github.com/oakwoodgates/kirby.git
 cd kirby
 ./deploy.sh
 ```
@@ -40,7 +40,7 @@ That's it! See **[QUICKSTART.md](QUICKSTART.md)** for details.
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/kirby.git
+git clone https://github.com/oakwoodgates/kirby.git
 cd kirby
 
 # Copy and configure environment
@@ -497,7 +497,7 @@ Complete step-by-step guide: **[DEPLOYMENT.md](DEPLOYMENT.md)**
 **Quick Deploy:**
 ```bash
 # On your Digital Ocean droplet:
-git clone https://github.com/YOUR_USERNAME/kirby.git
+git clone https://github.com/oakwoodgates/kirby.git
 cd kirby
 ./deploy.sh
 ```
