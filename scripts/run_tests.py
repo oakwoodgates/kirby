@@ -14,7 +14,9 @@ from src.config.settings import settings
 async def setup_test_database():
     """Create test database if it doesn't exist."""
     # Connect to postgres database to create test database
-    base_url = settings.database_url.rsplit("/", 1)[0]
+    # Convert async URL to sync URL for database setup
+    db_url = str(settings.database_url).replace("postgresql+asyncpg://", "postgresql://")
+    base_url = db_url.rsplit("/", 1)[0]
     engine = create_engine(f"{base_url}/postgres")
 
     with engine.connect() as conn:
@@ -38,7 +40,7 @@ async def setup_test_database():
 
 def run_tests(test_args: list[str] | None = None):
     """Run pytest with optional arguments."""
-    cmd = ["pytest"]
+    cmd = [sys.executable, "-m", "pytest"]
 
     if test_args:
         cmd.extend(test_args)

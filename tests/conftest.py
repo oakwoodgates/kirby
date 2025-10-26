@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
@@ -27,8 +27,13 @@ from src.db.models import (
 
 
 # Test database URL (use a separate test database)
-TEST_DATABASE_URL = settings.database_url.replace("/kirby", "/kirby_test")
-TEST_ASYNC_DATABASE_URL = settings.async_database_url.replace("/kirby", "/kirby_test")
+# Replace only the database name at the end, not the username
+db_url = str(settings.database_url)
+if db_url.endswith("/kirby"):
+    TEST_ASYNC_DATABASE_URL = db_url[:-6] + "/kirby_test"
+else:
+    # Fallback: replace all occurrences (for other formats)
+    TEST_ASYNC_DATABASE_URL = db_url.replace("database=kirby", "database=kirby_test")
 
 
 @pytest.fixture(scope="session")
@@ -181,13 +186,34 @@ async def seed_starlistings(
 
 
 @pytest.fixture
-def test_client() -> TestClient:
+def test_client(db_session: AsyncSession):
     """Create a test client for the FastAPI app."""
-    return TestClient(app)
+    # Override the database dependency
+    from src.api.dependencies import get_db_session
+
+    async def override_get_db_session():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    # Use TestClient without running lifespan
+    with TestClient(app) as client:
+        yield client
+
+    app.dependency_overrides.clear()
 
 
 @pytest_asyncio.fixture
-async def async_client() -> AsyncGenerator[AsyncClient, None]:
+async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     """Create an async test client for the FastAPI app."""
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    from src.api.dependencies import get_db_session
+
+    async def override_get_db_session():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_get_db_session
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
+
+    app.dependency_overrides.clear()
