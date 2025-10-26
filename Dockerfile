@@ -17,14 +17,12 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
+# Copy application code (needed for pyproject.toml install)
 COPY . .
+
+# Install Python dependencies from pyproject.toml
+# Use non-editable install for production
+RUN pip install --no-cache-dir .
 
 # Create non-root user for security
 RUN useradd -m -u 1000 kirby && \
