@@ -218,12 +218,13 @@ http://localhost:8000
 #### Get Candle Data
 
 ```http
-GET /candles/{exchange}/{coin}/{market_type}/{interval}
+GET /candles/{exchange}/{coin}/{quote}/{market_type}/{interval}
 ```
 
 **Parameters:**
 - `exchange` - Exchange name (e.g., `hyperliquid`)
-- `coin` - Coin symbol (e.g., `BTC`)
+- `coin` - Base coin symbol (e.g., `BTC`)
+- `quote` - Quote currency symbol (e.g., `USD`)
 - `market_type` - Market type (e.g., `perps`)
 - `interval` - Time interval (e.g., `15m`, `4h`, `1d`)
 
@@ -234,7 +235,7 @@ GET /candles/{exchange}/{coin}/{market_type}/{interval}
 
 **Example:**
 ```bash
-curl "http://localhost:8000/candles/hyperliquid/BTC/perps/15m?limit=100"
+curl "http://localhost:8000/candles/hyperliquid/BTC/USD/perps/15m?limit=100"
 ```
 
 **Response:**
@@ -254,6 +255,8 @@ curl "http://localhost:8000/candles/hyperliquid/BTC/perps/15m?limit=100"
   "metadata": {
     "exchange": "hyperliquid",
     "coin": "BTC",
+    "quote": "USD",
+    "trading_pair": "BTC/USD",
     "market_type": "perps",
     "interval": "15m",
     "count": 100
@@ -279,12 +282,20 @@ curl http://localhost:8000/starlistings
     {
       "id": 1,
       "exchange": "hyperliquid",
+      "exchange_display": "Hyperliquid",
       "coin": "BTC",
+      "coin_name": "Bitcoin",
+      "quote": "USD",
+      "quote_name": "US Dollar",
+      "trading_pair": "BTC/USD",
       "market_type": "perps",
+      "market_type_display": "Perpetuals",
       "interval": "15m",
+      "interval_seconds": 900,
       "active": true
     }
-  ]
+  ],
+  "total_count": 1
 }
 ```
 
@@ -398,35 +409,60 @@ alembic downgrade -1
 
 ## Testing
 
+### Setup Testing Environment
+
+First-time setup:
+
+```bash
+# Windows
+scripts\setup_dev.bat
+
+# Mac/Linux
+bash scripts/setup_dev.sh
+```
+
+This will:
+- Create a Python virtual environment
+- Install Kirby with dev dependencies
+- Prepare your environment for testing
+
 ### Run Tests
 
 ```bash
-# All tests
+# Easy way - automatically sets up test database
+python scripts/run_tests.py
+
+# Or run pytest directly
 pytest
 
 # Unit tests only
-pytest tests/unit
+pytest tests/unit -m unit
 
 # Integration tests only
-pytest tests/integration
+pytest tests/integration -m integration
 
 # With coverage
 pytest --cov=src --cov-report=html
 
 # Specific test file
-pytest tests/unit/test_repositories.py
+pytest tests/unit/test_helpers.py
 
 # Verbose output
 pytest -v
 ```
 
+### Test Coverage
+
+The test suite includes:
+- **Unit tests**: Helper functions, utilities, data validation
+- **Integration tests**: API endpoints, database operations, repositories
+- **Coverage reporting**: HTML and terminal reports
+
+For detailed testing documentation, see [TESTING.md](TESTING.md).
+
 ### Test Database
 
-Integration tests use a separate test database. Configure in `.env.test`:
-
-```bash
-DATABASE_URL=postgresql+asyncpg://kirby:password@localhost:5432/kirby_test
-```
+Integration tests automatically create and use a separate test database (`kirby_test`). No manual configuration needed!
 
 ---
 
