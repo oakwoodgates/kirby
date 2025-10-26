@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Import the Base and all models
 from src.db.base import Base
-from src.db.models import Candle, Coin, Exchange, Interval, MarketType, Starlisting
+from src.db.models import Candle, Coin, Exchange, Interval, MarketType, QuoteCurrency, Starlisting
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

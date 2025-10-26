@@ -47,6 +47,20 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_symbol'), 'coins', ['symbol'], unique=False)
 
+    # Create quote_currencies table
+    op.create_table(
+        'quote_currencies',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('symbol', sa.String(length=20), nullable=False),
+        sa.Column('name', sa.String(length=100), nullable=False),
+        sa.Column('active', sa.Boolean(), nullable=False),
+        sa.Column('created_at', sa.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.Column('updated_at', sa.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
+        sa.PrimaryKeyConstraint('id', name=op.f('pk_quote_currencies')),
+        sa.UniqueConstraint('symbol', name=op.f('uq_quote_currencies_symbol'))
+    )
+    op.create_index(op.f('ix_symbol'), 'quote_currencies', ['symbol'], unique=False)
+
     # Create market_types table
     op.create_table(
         'market_types',
@@ -82,19 +96,21 @@ def upgrade() -> None:
         sa.Column('id', sa.Integer(), nullable=False),
         sa.Column('exchange_id', sa.Integer(), nullable=False),
         sa.Column('coin_id', sa.Integer(), nullable=False),
+        sa.Column('quote_currency_id', sa.Integer(), nullable=False),
         sa.Column('market_type_id', sa.Integer(), nullable=False),
         sa.Column('interval_id', sa.Integer(), nullable=False),
         sa.Column('active', sa.Boolean(), nullable=False),
         sa.Column('created_at', sa.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['coin_id'], ['coins.id'], name=op.f('fk_starlistings_coin_id_coins')),
+        sa.ForeignKeyConstraint(['quote_currency_id'], ['quote_currencies.id'], name=op.f('fk_starlistings_quote_currency_id_quote_currencies')),
         sa.ForeignKeyConstraint(['exchange_id'], ['exchanges.id'], name=op.f('fk_starlistings_exchange_id_exchanges')),
         sa.ForeignKeyConstraint(['interval_id'], ['intervals.id'], name=op.f('fk_starlistings_interval_id_intervals')),
         sa.ForeignKeyConstraint(['market_type_id'], ['market_types.id'], name=op.f('fk_starlistings_market_type_id_market_types')),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_starlistings')),
-        sa.UniqueConstraint('exchange_id', 'coin_id', 'market_type_id', 'interval_id', name=op.f('uq_starlisting'))
+        sa.UniqueConstraint('exchange_id', 'coin_id', 'quote_currency_id', 'market_type_id', 'interval_id', name=op.f('uq_starlisting'))
     )
-    op.create_index('ix_starlisting_lookup', 'starlistings', ['exchange_id', 'coin_id', 'market_type_id', 'interval_id'], unique=False)
+    op.create_index('ix_starlisting_lookup', 'starlistings', ['exchange_id', 'coin_id', 'quote_currency_id', 'market_type_id', 'interval_id'], unique=False)
 
     # Create candles table
     op.create_table(
@@ -151,6 +167,18 @@ def upgrade() -> None:
         ('1w', 604800, true);
     """)
 
+    # Seed data for quote currencies
+    op.execute("""
+        INSERT INTO quote_currencies (symbol, name, active) VALUES
+        ('USD', 'US Dollar', true),
+        ('USDC', 'USD Coin', true),
+        ('USDT', 'Tether', true),
+        ('EUR', 'Euro', true),
+        ('GBP', 'British Pound', true),
+        ('BTC', 'Bitcoin', true),
+        ('ETH', 'Ethereum', true);
+    """)
+
 
 def downgrade() -> None:
     # Drop tables in reverse order
@@ -166,6 +194,9 @@ def downgrade() -> None:
 
     op.drop_index(op.f('ix_name'), table_name='market_types')
     op.drop_table('market_types')
+
+    op.drop_index(op.f('ix_symbol'), table_name='quote_currencies')
+    op.drop_table('quote_currencies')
 
     op.drop_index(op.f('ix_symbol'), table_name='coins')
     op.drop_table('coins')

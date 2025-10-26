@@ -82,14 +82,16 @@ class BackfillService:
         """
         exchange_name = starlisting["exchange"]
         coin = starlisting["coin"]
+        quote = starlisting["quote"]
         market_type = starlisting["market_type"]
         interval = starlisting["interval"]
         starlisting_id = starlisting["id"]
+        trading_pair = starlisting["trading_pair"]
 
         self.logger.info(
             "Starting backfill",
             exchange=exchange_name,
-            coin=coin,
+            trading_pair=trading_pair,
             market_type=market_type,
             interval=interval,
             days=days,
@@ -99,12 +101,12 @@ class BackfillService:
             # Get exchange client
             exchange = self.get_exchange_client(exchange_name)
 
-            # Construct symbol (e.g., BTC/USD:BTC for perps)
+            # Construct symbol for CCXT (e.g., BTC/USD:BTC for perps, BTC/USD for spot)
             # This varies by exchange, adjust as needed
             if market_type == "perps":
-                symbol = f"{coin}/USD:{coin}"
+                symbol = f"{coin}/{quote}:{coin}"
             else:
-                symbol = f"{coin}/USD"
+                symbol = f"{coin}/{quote}"
 
             # Calculate timeframe
             end_time = utc_now()

@@ -40,7 +40,7 @@ class Exchange(Base, TimestampMixin):
 
 
 class Coin(Base, TimestampMixin):
-    """Coin model - represents a cryptocurrency."""
+    """Coin model - represents a cryptocurrency (base asset)."""
 
     __tablename__ = "coins"
 
@@ -56,6 +56,25 @@ class Coin(Base, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Coin(id={self.id}, symbol={self.symbol}, name={self.name})>"
+
+
+class QuoteCurrency(Base, TimestampMixin):
+    """QuoteCurrency model - represents the quote asset in a trading pair (USD, USDC, EUR, etc.)."""
+
+    __tablename__ = "quote_currencies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Relationships
+    starlistings: Mapped[List["Starlisting"]] = relationship(
+        "Starlisting", back_populates="quote_currency"
+    )
+
+    def __repr__(self) -> str:
+        return f"<QuoteCurrency(id={self.id}, symbol={self.symbol}, name={self.name})>"
 
 
 class MarketType(Base, TimestampMixin):
@@ -100,8 +119,10 @@ class Interval(Base, TimestampMixin):
 
 class Starlisting(Base, TimestampMixin):
     """
-    Starlisting model - represents a unique combination of exchange, coin, market type, and interval.
-    This is what we collect and store data for.
+    Starlisting model - represents a unique combination of exchange, trading pair (coin+quote),
+    market type, and interval. This is what we collect and store data for.
+
+    Example: Hyperliquid BTC/USD Perpetuals 15m
     """
 
     __tablename__ = "starlistings"
@@ -111,6 +132,9 @@ class Starlisting(Base, TimestampMixin):
         Integer, ForeignKey("exchanges.id"), nullable=False
     )
     coin_id: Mapped[int] = mapped_column(Integer, ForeignKey("coins.id"), nullable=False)
+    quote_currency_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("quote_currencies.id"), nullable=False
+    )
     market_type_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("market_types.id"), nullable=False
     )
@@ -120,6 +144,7 @@ class Starlisting(Base, TimestampMixin):
     # Relationships
     exchange: Mapped["Exchange"] = relationship("Exchange", back_populates="starlistings")
     coin: Mapped["Coin"] = relationship("Coin", back_populates="starlistings")
+    quote_currency: Mapped["QuoteCurrency"] = relationship("QuoteCurrency", back_populates="starlistings")
     market_type: Mapped["MarketType"] = relationship("MarketType", back_populates="starlistings")
     interval: Mapped["Interval"] = relationship("Interval", back_populates="starlistings")
     candles: Mapped[List["Candle"]] = relationship("Candle", back_populates="starlisting")
@@ -128,6 +153,7 @@ class Starlisting(Base, TimestampMixin):
         UniqueConstraint(
             "exchange_id",
             "coin_id",
+            "quote_currency_id",
             "market_type_id",
             "interval_id",
             name="uq_starlisting",
@@ -136,6 +162,7 @@ class Starlisting(Base, TimestampMixin):
             "ix_starlisting_lookup",
             "exchange_id",
             "coin_id",
+            "quote_currency_id",
             "market_type_id",
             "interval_id",
         ),
@@ -144,9 +171,13 @@ class Starlisting(Base, TimestampMixin):
     def __repr__(self) -> str:
         return (
             f"<Starlisting(id={self.id}, exchange_id={self.exchange_id}, "
-            f"coin_id={self.coin_id}, market_type_id={self.market_type_id}, "
-            f"interval_id={self.interval_id})>"
+            f"coin_id={self.coin_id}, quote_currency_id={self.quote_currency_id}, "
+            f"market_type_id={self.market_type_id}, interval_id={self.interval_id})>"
         )
+
+    def get_trading_pair(self) -> str:
+        """Get the trading pair symbol (e.g., 'BTC/USD')."""
+        return f"{self.coin.symbol}/{self.quote_currency.symbol}"
 
 
 class Candle(Base):

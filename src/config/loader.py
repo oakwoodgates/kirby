@@ -13,6 +13,7 @@ from src.db.repositories import (
     ExchangeRepository,
     IntervalRepository,
     MarketTypeRepository,
+    QuoteCurrencyRepository,
     StarlistingRepository,
 )
 
@@ -51,6 +52,7 @@ class ConfigLoader:
         # Initialize repositories
         exchange_repo = ExchangeRepository(session)
         coin_repo = CoinRepository(session)
+        quote_currency_repo = QuoteCurrencyRepository(session)
         market_type_repo = MarketTypeRepository(session)
         interval_repo = IntervalRepository(session)
         starlisting_repo = StarlistingRepository(session)
@@ -77,6 +79,17 @@ class ConfigLoader:
             coins[coin.symbol] = coin
             logger.info(f"  - {coin.symbol}")
 
+        # Sync quote currencies
+        logger.info("Syncing quote currencies...")
+        quote_currencies = {}
+        for quote_data in self.config.get("quote_currencies", []):
+            quote = await quote_currency_repo.get_or_create(
+                symbol=quote_data["symbol"],
+                name=quote_data["name"],
+            )
+            quote_currencies[quote.symbol] = quote
+            logger.info(f"  - {quote.symbol}")
+
         # Sync market types
         logger.info("Syncing market types...")
         market_types = {}
@@ -95,6 +108,7 @@ class ConfigLoader:
         for starlisting_data in self.config.get("starlistings", []):
             exchange_name = starlisting_data["exchange"]
             coin_symbol = starlisting_data["coin"]
+            quote_symbol = starlisting_data["quote"]
             market_type_name = starlisting_data["market_type"]
             intervals = starlisting_data["intervals"]
             active = starlisting_data.get("active", True)
@@ -102,11 +116,12 @@ class ConfigLoader:
             # Get the related objects
             exchange = exchanges.get(exchange_name)
             coin = coins.get(coin_symbol)
+            quote = quote_currencies.get(quote_symbol)
             market_type = market_types.get(market_type_name)
 
-            if not exchange or not coin or not market_type:
+            if not exchange or not coin or not quote or not market_type:
                 logger.warning(
-                    f"Skipping starlisting {exchange_name}/{coin_symbol}/{market_type_name}: "
+                    f"Skipping starlisting {exchange_name}/{coin_symbol}/{quote_symbol}/{market_type_name}: "
                     f"Missing reference"
                 )
                 continue
@@ -124,6 +139,7 @@ class ConfigLoader:
                 existing = await starlisting_repo.get_by_components(
                     exchange_id=exchange.id,
                     coin_id=coin.id,
+                    quote_currency_id=quote.id,
                     market_type_id=market_type.id,
                     interval_id=interval.id,
                 )
@@ -133,7 +149,7 @@ class ConfigLoader:
                     if existing.active != active:
                         await starlisting_repo.update(existing.id, active=active)
                         logger.info(
-                            f"  - Updated: {exchange_name}/{coin_symbol}/{market_type_name} "
+                            f"  - Updated: {exchange_name}/{coin_symbol}/{quote_symbol}/{market_type_name} "
                             f"{interval_name} (active={active})"
                         )
                 else:
@@ -141,12 +157,13 @@ class ConfigLoader:
                     await starlisting_repo.create(
                         exchange_id=exchange.id,
                         coin_id=coin.id,
+                        quote_currency_id=quote.id,
                         market_type_id=market_type.id,
                         interval_id=interval.id,
                         active=active,
                     )
                     logger.info(
-                        f"  - Created: {exchange_name}/{coin_symbol}/{market_type_name} "
+                        f"  - Created: {exchange_name}/{coin_symbol}/{quote_symbol}/{market_type_name} "
                         f"{interval_name}"
                     )
                     starlisting_count += 1
@@ -173,6 +190,9 @@ class ConfigLoader:
                     "exchange_display": starlisting.exchange.display_name,
                     "coin": starlisting.coin.symbol,
                     "coin_name": starlisting.coin.name,
+                    "quote": starlisting.quote_currency.symbol,
+                    "quote_name": starlisting.quote_currency.name,
+                    "trading_pair": starlisting.get_trading_pair(),
                     "market_type": starlisting.market_type.name,
                     "market_type_display": starlisting.market_type.display_name,
                     "interval": starlisting.interval.name,

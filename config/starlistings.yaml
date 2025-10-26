@@ -1,7 +1,7 @@
 # Kirby Starlistings Configuration
-# Define which exchange + coin + market type + intervals to collect data for
+# Define which exchange + trading pair (coin/quote) + market type + intervals to collect data for
 
-version: "1.0"
+version: "1.1"
 
 # Exchange definitions
 exchanges:
@@ -9,7 +9,7 @@ exchanges:
     display_name: Hyperliquid
     active: true
 
-# Coin definitions
+# Coin definitions (base assets)
 coins:
   - symbol: BTC
     name: Bitcoin
@@ -18,17 +18,31 @@ coins:
     name: Solana
     active: true
 
+# Quote currency definitions
+quote_currencies:
+  - symbol: USD
+    name: US Dollar
+    active: true
+  - symbol: USDC
+    name: USD Coin
+    active: true
+
 # Market type definitions
 market_types:
   - name: perps
     display_name: Perpetuals
     active: true
+  - name: spot
+    display_name: Spot
+    active: true
 
-# Starlistings - combinations of exchange + coin + market_type + intervals
+# Starlistings - combinations of exchange + coin + quote + market_type + intervals
+# Trading pair = coin/quote (e.g., BTC/USD, SOL/USDC)
 starlistings:
-  # Hyperliquid BTC Perpetuals
+  # Hyperliquid BTC/USD Perpetuals
   - exchange: hyperliquid
     coin: BTC
+    quote: USD
     market_type: perps
     intervals:
       - 1m
@@ -37,9 +51,10 @@ starlistings:
       - 1d
     active: true
 
-  # Hyperliquid SOL Perpetuals
+  # Hyperliquid SOL/USD Perpetuals
   - exchange: hyperliquid
     coin: SOL
+    quote: USD
     market_type: perps
     intervals:
       - 1m

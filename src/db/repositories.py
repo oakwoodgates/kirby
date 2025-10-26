@@ -9,7 +9,7 @@ import asyncpg
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .models import Candle, Coin, Exchange, Interval, MarketType, Starlisting
+from .models import Candle, Coin, Exchange, Interval, MarketType, QuoteCurrency, Starlisting
 
 ModelType = TypeVar("ModelType")
 
@@ -102,6 +102,26 @@ class CoinRepository(BaseRepository[Coin]):
         return coin
 
 
+class QuoteCurrencyRepository(BaseRepository[QuoteCurrency]):
+    """Repository for QuoteCurrency model."""
+
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, QuoteCurrency)
+
+    async def get_by_symbol(self, symbol: str) -> QuoteCurrency | None:
+        """Get quote currency by symbol."""
+        result = await self.session.execute(select(QuoteCurrency).where(QuoteCurrency.symbol == symbol))
+        return result.scalar_one_or_none()
+
+    async def get_or_create(self, symbol: str, name: str) -> QuoteCurrency:
+        """Get or create a quote currency."""
+        quote = await self.get_by_symbol(symbol)
+        if not quote:
+            quote = await self.create(symbol=symbol, name=name, active=True)
+            await self.session.commit()
+        return quote
+
+
 class MarketTypeRepository(BaseRepository[MarketType]):
     """Repository for MarketType model."""
 
@@ -144,6 +164,7 @@ class StarlistingRepository(BaseRepository[Starlisting]):
         self,
         exchange_id: int,
         coin_id: int,
+        quote_currency_id: int,
         market_type_id: int,
         interval_id: int,
     ) -> Starlisting | None:
@@ -152,6 +173,7 @@ class StarlistingRepository(BaseRepository[Starlisting]):
             select(Starlisting).where(
                 Starlisting.exchange_id == exchange_id,
                 Starlisting.coin_id == coin_id,
+                Starlisting.quote_currency_id == quote_currency_id,
                 Starlisting.market_type_id == market_type_id,
                 Starlisting.interval_id == interval_id,
             )
@@ -165,6 +187,7 @@ class StarlistingRepository(BaseRepository[Starlisting]):
             .where(Starlisting.active == True)
             .join(Starlisting.exchange)
             .join(Starlisting.coin)
+            .join(Starlisting.quote_currency)
             .join(Starlisting.market_type)
             .join(Starlisting.interval)
         )
