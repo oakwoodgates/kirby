@@ -193,6 +193,10 @@ class StarlistingRepository(BaseRepository[Starlisting]):
         )
         return list(result.scalars().all())
 
+    async def get_active(self) -> List[Starlisting]:
+        """Alias for get_active_starlistings() for consistency."""
+        return await self.get_active_starlistings()
+
 
 class CandleRepository:
     """

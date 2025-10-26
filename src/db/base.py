@@ -4,7 +4,7 @@ Database base models and declarative base.
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import MetaData, func
+from sqlalchemy import DateTime, MetaData, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -27,7 +27,7 @@ class Base(DeclarativeBase):
 
     # Type annotation for all models
     type_annotation_map = {
-        datetime: "TIMESTAMP WITH TIME ZONE",
+        datetime: DateTime(timezone=True),
     }
 
 

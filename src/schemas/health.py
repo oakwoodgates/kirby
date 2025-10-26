@@ -3,7 +3,7 @@ Pydantic schemas for health check endpoints.
 """
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CollectorHealth(BaseModel):
@@ -21,15 +21,8 @@ class CollectorHealth(BaseModel):
 class HealthResponse(BaseModel):
     """Response model for overall health check."""
 
-    status: str = Field(..., description="Overall status (healthy/degraded/unhealthy)")
-    timestamp: datetime = Field(..., description="Health check timestamp")
-    database: str = Field(..., description="Database connection status")
-    collectors: dict[str, CollectorHealth] | None = Field(
-        None, description="Collector health status"
-    )
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "status": "healthy",
                 "timestamp": "2025-10-26T12:00:00Z",
@@ -47,19 +40,21 @@ class HealthResponse(BaseModel):
                 },
             }
         }
+    )
+
+    status: str = Field(..., description="Overall status (healthy/degraded/unhealthy)")
+    timestamp: datetime = Field(..., description="Health check timestamp")
+    database: str = Field(..., description="Database connection status")
+    collectors: dict[str, CollectorHealth] | None = Field(
+        None, description="Collector health status"
+    )
 
 
 class ExchangeHealthResponse(BaseModel):
     """Response model for exchange-specific health check."""
 
-    exchange: str = Field(..., description="Exchange name")
-    collector: CollectorHealth = Field(..., description="Collector health")
-    data_freshness: dict[str, bool] | None = Field(
-        None, description="Data freshness by starlisting"
-    )
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "exchange": "hyperliquid",
                 "collector": {
@@ -77,3 +72,10 @@ class ExchangeHealthResponse(BaseModel):
                 },
             }
         }
+    )
+
+    exchange: str = Field(..., description="Exchange name")
+    collector: CollectorHealth = Field(..., description="Collector health")
+    data_freshness: dict[str, bool] | None = Field(
+        None, description="Data freshness by starlisting"
+    )

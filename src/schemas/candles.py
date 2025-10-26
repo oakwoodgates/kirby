@@ -4,23 +4,15 @@ Pydantic schemas for candle-related API endpoints.
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CandleResponse(BaseModel):
     """Response model for a single candle."""
 
-    time: datetime = Field(..., description="Candle timestamp (open time)")
-    open: Decimal = Field(..., description="Opening price")
-    high: Decimal = Field(..., description="Highest price")
-    low: Decimal = Field(..., description="Lowest price")
-    close: Decimal = Field(..., description="Closing price")
-    volume: Decimal = Field(..., description="Trading volume")
-    num_trades: int | None = Field(None, description="Number of trades (if available)")
-
-    class Config:
-        from_attributes = True
-        json_schema_extra = {
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
             "example": {
                 "time": "2025-10-26T12:00:00Z",
                 "open": "67500.50",
@@ -30,7 +22,16 @@ class CandleResponse(BaseModel):
                 "volume": "1234.5678",
                 "num_trades": 542,
             }
-        }
+        },
+    )
+
+    time: datetime = Field(..., description="Candle timestamp (open time)")
+    open: Decimal = Field(..., description="Opening price")
+    high: Decimal = Field(..., description="Highest price")
+    low: Decimal = Field(..., description="Lowest price")
+    close: Decimal = Field(..., description="Closing price")
+    volume: Decimal = Field(..., description="Trading volume")
+    num_trades: int | None = Field(None, description="Number of trades (if available)")
 
 
 class CandleMetadata(BaseModel):
@@ -50,11 +51,8 @@ class CandleMetadata(BaseModel):
 class CandleListResponse(BaseModel):
     """Response model for list of candles."""
 
-    data: list[CandleResponse] = Field(..., description="List of candles")
-    metadata: CandleMetadata = Field(..., description="Query metadata")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "data": [
                     {
@@ -80,3 +78,7 @@ class CandleListResponse(BaseModel):
                 },
             }
         }
+    )
+
+    data: list[CandleResponse] = Field(..., description="List of candles")
+    metadata: CandleMetadata = Field(..., description="Query metadata")
