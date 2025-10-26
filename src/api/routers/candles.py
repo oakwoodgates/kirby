@@ -6,6 +6,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from src.api.dependencies import get_db_session
 from src.db.models import Coin, Exchange, Interval, MarketType, QuoteCurrency, Starlisting
@@ -63,6 +64,13 @@ async def get_candles(
             MarketType.name == market_type,
             Interval.name == interval,
         )
+        .options(
+            selectinload(Starlisting.exchange),
+            selectinload(Starlisting.coin),
+            selectinload(Starlisting.quote_currency),
+            selectinload(Starlisting.market_type),
+            selectinload(Starlisting.interval),
+        )
     )
 
     result = await session.execute(stmt)
@@ -80,9 +88,8 @@ async def get_candles(
             detail=f"Starlisting is not active: {exchange}/{coin}/{quote}/{market_type}/{interval}",
         )
 
-    # Get candles using repository (we need asyncpg pool for this)
-    # For now, use SQLAlchemy to query candles
-    candle_repo = CandleRepository(None)  # We'll use session-based method
+    # Get candles using repository with session-based query
+    candle_repo = CandleRepository(pool=None)  # Pool not needed for get_candles with session
     candles = await candle_repo.get_candles(
         session=session,
         starlisting_id=starlisting.id,
