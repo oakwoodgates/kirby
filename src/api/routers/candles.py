@@ -6,7 +6,6 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from src.api.dependencies import get_db_session
 from src.db.models import Coin, Exchange, Interval, MarketType, QuoteCurrency, Starlisting
@@ -49,14 +48,15 @@ async def get_candles(
     Returns:
     - List of candles with metadata
     """
-    # Find starlisting by components
+    # Find starlisting by components - just get the ID and active status
+    # Avoid loading relationships to prevent greenlet errors
     stmt = (
-        select(Starlisting)
-        .join(Starlisting.exchange)
-        .join(Starlisting.coin)
-        .join(Starlisting.quote_currency)
-        .join(Starlisting.market_type)
-        .join(Starlisting.interval)
+        select(Starlisting.id, Starlisting.active)
+        .join(Exchange, Starlisting.exchange_id == Exchange.id)
+        .join(Coin, Starlisting.coin_id == Coin.id)
+        .join(QuoteCurrency, Starlisting.quote_currency_id == QuoteCurrency.id)
+        .join(MarketType, Starlisting.market_type_id == MarketType.id)
+        .join(Interval, Starlisting.interval_id == Interval.id)
         .where(
             Exchange.name == exchange,
             Coin.symbol == coin.upper(),
@@ -64,25 +64,20 @@ async def get_candles(
             MarketType.name == market_type,
             Interval.name == interval,
         )
-        .options(
-            selectinload(Starlisting.exchange),
-            selectinload(Starlisting.coin),
-            selectinload(Starlisting.quote_currency),
-            selectinload(Starlisting.market_type),
-            selectinload(Starlisting.interval),
-        )
     )
 
     result = await session.execute(stmt)
-    starlisting = result.scalar_one_or_none()
+    row = result.one_or_none()
 
-    if not starlisting:
+    if not row:
         raise HTTPException(
             status_code=404,
             detail=f"Starlisting not found: {exchange}/{coin}/{quote}/{market_type}/{interval}",
         )
 
-    if not starlisting.active:
+    starlisting_id, is_active = row
+
+    if not is_active:
         raise HTTPException(
             status_code=400,
             detail=f"Starlisting is not active: {exchange}/{coin}/{quote}/{market_type}/{interval}",
@@ -92,7 +87,7 @@ async def get_candles(
     candle_repo = CandleRepository(pool=None)  # Pool not needed for get_candles with session
     candles = await candle_repo.get_candles(
         session=session,
-        starlisting_id=starlisting.id,
+        starlisting_id=starlisting_id,
         start_time=start_time,
         end_time=end_time,
         limit=limit,

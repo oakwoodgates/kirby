@@ -56,6 +56,12 @@ def get_sqlalchemy_engine() -> AsyncEngine:
             max_overflow=settings.database_max_overflow,
             pool_pre_ping=True,
             pool_recycle=3600,
+            # Critical for async: ensure proper greenlet/asyncio integration
+            connect_args={
+                "server_settings": {
+                    "application_name": "kirby_api",
+                },
+            },
         )
 
     return _sqlalchemy_engine
