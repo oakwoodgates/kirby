@@ -247,17 +247,6 @@ docker compose up -d
 docker compose ps
 ```
 
-You should see 3 services running:
-- `kirby-timescaledb` (database)
-- `kirby-collector` (data collector)
-- `kirby-api` (REST API)
-
-### Step 5.6: Check Service Status
-
-```bash
-docker compose ps
-```
-
 All three services should be running:
 - `kirby-timescaledb` (healthy)
 - `kirby-collector` (running, may show errors - this is normal!)
@@ -265,7 +254,7 @@ All three services should be running:
 
 **Note**: You may see errors in the logs about "relation does not exist" - this is expected because we haven't run database migrations yet. Don't worry, we'll fix this in the next step!
 
-### Step 5.7: Run Database Migrations
+### Step 5.6: Run Database Migrations
 
 ```bash
 # Run migrations
@@ -275,7 +264,7 @@ docker compose exec collector alembic upgrade head
 docker compose run --rm collector alembic upgrade head
 ```
 
-### Step 5.8: Sync Configuration
+### Step 5.7: Sync Configuration
 
 ```bash
 docker compose exec collector python -m scripts.sync_config
@@ -285,7 +274,7 @@ You should see output confirming starlistings were created (e.g., "Created 8 sta
 
 **Note**: Use `-m scripts.sync_config` (Python module syntax) rather than `scripts/sync_config.py` to ensure proper imports.
 
-### Step 5.9: Restart Services (Important!)
+### Step 5.8: Restart Services (Important!)
 
 After running migrations and syncing config, restart the services so they can connect properly:
 
@@ -293,7 +282,7 @@ After running migrations and syncing config, restart the services so they can co
 docker compose restart collector api
 ```
 
-### Step 5.10: View Logs
+### Step 5.9: View Logs
 
 Now check that everything is working:
 
