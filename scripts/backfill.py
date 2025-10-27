@@ -101,12 +101,18 @@ class BackfillService:
             # Get exchange client
             exchange = self.get_exchange_client(exchange_name)
 
-            # Construct symbol for CCXT (e.g., BTC/USD:BTC for perps, BTC/USD for spot)
-            # This varies by exchange, adjust as needed
+            # Construct symbol for CCXT (exchange-specific formats)
+            # Hyperliquid uses USDC as the quote currency in CCXT
+            ccxt_quote = quote
+            if exchange_name == "hyperliquid" and quote == "USD":
+                ccxt_quote = "USDC"
+
             if market_type == "perps":
-                symbol = f"{coin}/{quote}:{coin}"
+                # Format: BTC/USDC:USDC for Hyperliquid perps
+                symbol = f"{coin}/{ccxt_quote}:{ccxt_quote}"
             else:
-                symbol = f"{coin}/{quote}"
+                # Format: BTC/USDC for spot
+                symbol = f"{coin}/{ccxt_quote}"
 
             # Calculate timeframe
             end_time = utc_now()
@@ -244,8 +250,11 @@ class BackfillService:
 
         # Load starlistings
         config_loader = ConfigLoader()
-        async with get_session() as session:
+        session = await get_session()
+        try:
             starlistings = await config_loader.get_active_starlistings(session)
+        finally:
+            await session.close()
 
         self.logger.info("Loaded starlistings", count=len(starlistings))
 
@@ -283,8 +292,11 @@ class BackfillService:
 
         # Load starlistings
         config_loader = ConfigLoader()
-        async with get_session() as session:
+        session = await get_session()
+        try:
             starlistings = await config_loader.get_active_starlistings(session)
+        finally:
+            await session.close()
 
         # Filter starlistings
         filtered = [

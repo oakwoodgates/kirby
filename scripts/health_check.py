@@ -27,10 +27,13 @@ async def check_database_connection() -> bool:
     logger = structlog.get_logger("kirby.health.database")
 
     try:
-        async with get_session() as session:
+        session = await get_session()
+        try:
             # Simple query to verify connection
             result = await session.execute("SELECT 1")
             result.scalar()
+        finally:
+            await session.close()
 
         logger.info("Database connection: OK")
         return True
@@ -54,20 +57,23 @@ async def check_data_freshness() -> dict[str, bool]:
     now = utc_now()
 
     try:
-        async with get_session() as session:
+        session = await get_session()
+        try:
             # Get all active starlistings
             starlisting_repo = StarlistingRepository(session)
             starlistings = await starlisting_repo.get_active_starlistings()
 
-            candle_repo = CandleRepository(await get_session())
-
             for starlisting in starlistings:
                 # Get latest candle
-                async with get_session() as candle_session:
-                    latest = await CandleRepository(None).get_latest_candle(
+                candle_session = await get_session()
+                try:
+                    candle_repo = CandleRepository(candle_session)
+                    latest = await candle_repo.get_latest_candle(
                         candle_session,
                         starlisting.id,
                     )
+                finally:
+                    await candle_session.close()
 
                 if not latest:
                     freshness[f"{starlisting.exchange.name}/{starlisting.coin.symbol}/{starlisting.interval.name}"] = False
@@ -100,6 +106,8 @@ async def check_data_freshness() -> dict[str, bool]:
                             interval=starlisting.interval.name,
                             age_seconds=int(age.total_seconds()),
                         )
+        finally:
+            await session.close()
 
         return freshness
 
