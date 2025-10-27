@@ -357,6 +357,110 @@ docker compose logs --tail=50 collector
 # "Subscribed to candles"
 ```
 
+### Step 6.6: Backfill Historical Data (Optional)
+
+After your collector is running and collecting real-time data, you may want to backfill historical candle data. This is useful for:
+- Building historical datasets for analysis
+- Filling gaps if the collector was offline
+- Getting data from before your deployment
+
+**Important**: The backfill script uses CCXT which maps Hyperliquid's USD quotes to USDC internally (this is how CCXT represents Hyperliquid markets). Don't worry - this is handled automatically and your data will still show as USD in the database.
+
+#### Backfill 1 Day of Data (Quick Test)
+
+```bash
+# Backfill 1 day of BTC data across all intervals
+docker compose exec collector python -m scripts.backfill --exchange=hyperliquid --coin=BTC --days=1
+
+# Expected output:
+# - 1m: ~1,440 candles
+# - 15m: ~96 candles
+# - 4h: ~6 candles
+# - 1d: ~1 candle
+```
+
+#### Backfill 30 Days for a Specific Coin
+
+```bash
+# Backfill 30 days of SOL data
+docker compose exec collector python -m scripts.backfill --exchange=hyperliquid --coin=SOL --days=30
+```
+
+#### Backfill All Active Starlistings
+
+```bash
+# Backfill 90 days for all configured trading pairs
+docker compose exec collector python -m scripts.backfill --all --days=90
+
+# For 1 year of data (this will take longer)
+docker compose exec collector python -m scripts.backfill --all --days=365
+```
+
+#### Monitor Backfill Progress
+
+```bash
+# Watch the backfill logs in real-time
+docker compose logs -f collector
+
+# Check how many candles were backfilled
+docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM candles;"
+
+# Check candles by interval
+docker compose exec timescaledb psql -U kirby -d kirby -c "
+SELECT i.name as interval, COUNT(*) as candle_count
+FROM candles c
+JOIN starlistings s ON c.starlisting_id = s.id
+JOIN intervals i ON s.interval_id = i.id
+GROUP BY i.name
+ORDER BY i.name;
+"
+```
+
+#### Backfill Best Practices
+
+**Start Small**: Test with 1 day first to verify everything works
+```bash
+docker compose exec collector python -m scripts.backfill --coin=BTC --days=1
+```
+
+**Rate Limiting**: The backfill script automatically handles rate limits, but large backfills will take time
+- 1 day: ~1-2 minutes per coin
+- 30 days: ~5-10 minutes per coin
+- 365 days: ~30-60 minutes per coin
+
+**Run During Low Traffic**: For large backfills (>30 days), run during off-peak hours to avoid impacting real-time collection
+
+**Check for Duplicates**: The backfill uses `UPSERT` logic, so running it multiple times won't create duplicates - it will update existing candles
+
+#### Verify Backfill Results
+
+```bash
+# Check date range of backfilled data
+docker compose exec timescaledb psql -U kirby -d kirby -c "
+SELECT
+  MIN(time) as earliest_candle,
+  MAX(time) as latest_candle,
+  COUNT(*) as total_candles
+FROM candles;
+"
+
+# Check backfill completeness for BTC 1m
+docker compose exec timescaledb psql -U kirby -d kirby -c "
+SELECT
+  c.symbol as coin,
+  i.name as interval,
+  COUNT(*) as candle_count,
+  MIN(ca.time) as earliest,
+  MAX(ca.time) as latest
+FROM candles ca
+JOIN starlistings s ON ca.starlisting_id = s.id
+JOIN coins c ON s.coin_id = c.id
+JOIN intervals i ON s.interval_id = i.id
+WHERE c.symbol = 'BTC' AND i.name = '1m'
+GROUP BY c.symbol, i.name;
+"
+```
+
 ---
 
 ## 7. Monitoring and Maintenance

@@ -117,6 +117,33 @@ docker compose exec collector python -m scripts.sync_config
 docker compose restart collector
 ```
 
+## Backfill Historical Data
+
+Want historical data from before your deployment? Use the backfill script:
+
+```bash
+# Quick test - backfill 1 day of BTC data
+docker compose exec collector python -m scripts.backfill --coin=BTC --days=1
+
+# Backfill 30 days for all active starlistings
+docker compose exec collector python -m scripts.backfill --all --days=30
+
+# Backfill specific coin
+docker compose exec collector python -m scripts.backfill --coin=SOL --days=90
+```
+
+**Expected time**:
+- 1 day: ~1-2 minutes per coin
+- 30 days: ~5-10 minutes per coin
+- 365 days: ~30-60 minutes per coin
+
+Check progress:
+```bash
+docker compose logs -f collector
+```
+
+For detailed backfill instructions, see [DEPLOYMENT.md](DEPLOYMENT.md#step-66-backfill-historical-data-optional).
+
 ## Production Deployment (Digital Ocean)
 
 For production deployment to Digital Ocean, see:

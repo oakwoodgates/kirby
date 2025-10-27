@@ -204,15 +204,20 @@ docker-compose logs -f collector
 ### Backfilling Historical Data
 
 ```bash
-# Backfill 1 year of data for all active starlistings
-python -m scripts.backfill --days=365
+# Backfill all active starlistings (1 year)
+python -m scripts.backfill --all --days=365
 
 # Backfill specific exchange and coin
 python -m scripts.backfill --exchange=hyperliquid --coin=BTC --days=90
 
-# Resume interrupted backfill
-python -m scripts.backfill --resume
+# Backfill specific coin (all intervals)
+python -m scripts.backfill --coin=SOL --days=30
+
+# Quick test (1 day of BTC data)
+python -m scripts.backfill --exchange=hyperliquid --coin=BTC --days=1
 ```
+
+**Note**: The backfill uses CCXT which automatically handles Hyperliquid's USD/USDC mapping. Your data will be stored as USD in the database.
 
 ### Health Checks
 
