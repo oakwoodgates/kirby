@@ -364,7 +364,10 @@ After your collector is running and collecting real-time data, you may want to b
 - Filling gaps if the collector was offline
 - Getting data from before your deployment
 
-**Important**: The backfill script uses CCXT which maps Hyperliquid's USD quotes to USDC internally (this is how CCXT represents Hyperliquid markets). Don't worry - this is handled automatically and your data will still show as USD in the database.
+**Important Notes**:
+- ⚠️ All commands below use `docker compose exec collector` - this runs the script **inside** the Docker container
+- The backfill script uses CCXT which maps Hyperliquid's USD quotes to USDC internally (this is how CCXT represents Hyperliquid markets)
+- Your data will be stored as USD in the database - the USDC mapping is automatic
 
 #### Backfill 1 Day of Data (Quick Test)
 
@@ -763,6 +766,33 @@ docker compose exec timescaledb psql -U kirby -d kirby -c "SHOW shared_buffers;"
 #     resources:
 #       limits:
 #         memory: 1G
+```
+
+### Issue: "python: command not found" When Running Backfill
+
+**Symptom**: You get `python: command not found` or `bash: python: command not found` when trying to run the backfill script.
+
+**Cause**: You're trying to run the script directly on the Ubuntu host system, which doesn't have a `python` command (only `python3`).
+
+**Solution**: Use `docker compose exec collector` to run the script **inside** the Docker container:
+
+```bash
+# ❌ Wrong - tries to run on host system
+python -m scripts.backfill --coin=BTC --days=1
+
+# ❌ Also wrong - still on host
+python3 -m scripts.backfill --coin=BTC --days=1
+
+# ✅ Correct - runs inside Docker container
+docker compose exec collector python -m scripts.backfill --coin=BTC --days=1
+```
+
+**Why**: The Docker container (based on `python:3.13-slim`) has Python installed, but your Ubuntu host may not have `python` symlinked to `python3`.
+
+**Alternative for Local Development**: If you're running locally without Docker:
+```bash
+# On Ubuntu/Debian host (outside Docker)
+python3 -m scripts.backfill --coin=BTC --days=1
 ```
 
 ### Reset Everything (Nuclear Option)
