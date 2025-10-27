@@ -55,7 +55,7 @@ docker compose up -d
 docker compose exec collector alembic upgrade head
 
 # Sync configuration to database
-docker compose exec collector python scripts/sync_config.py
+docker compose exec collector python -m scripts.sync_config
 
 # Check status
 docker compose ps

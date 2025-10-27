@@ -44,7 +44,7 @@ docker compose up -d
 docker compose exec collector alembic upgrade head
 
 # 4. Sync configuration
-docker compose exec collector python scripts/sync_config.py
+docker compose exec collector python -m scripts.sync_config
 
 # 5. Check status
 docker compose ps
@@ -61,7 +61,7 @@ curl http://localhost:8000/health
 curl http://localhost:8000/starlistings | jq
 
 # Wait 1-2 minutes, then check collected data
-curl http://localhost:8000/candles?limit=5 | jq
+curl "http://localhost:8000/candles/hyperliquid/BTC/USD/perps/1m?limit=5" | jq
 ```
 
 ## Common Commands
@@ -113,7 +113,7 @@ starlistings:
 
 Then sync:
 ```bash
-docker compose exec collector python scripts/sync_config.py
+docker compose exec collector python -m scripts.sync_config
 docker compose restart collector
 ```
 

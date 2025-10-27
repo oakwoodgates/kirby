@@ -341,7 +341,7 @@ You should see your configured trading pairs.
 Wait 1-2 minutes for the collector to gather some candles, then check:
 
 ```bash
-curl "http://localhost:8000/candles?limit=5" | jq
+curl "http://localhost:8000/candles/hyperliquid/BTC/USD/perps/1m?limit=5" | jq
 ```
 
 ### Step 6.4: Check Database Directly
@@ -682,7 +682,7 @@ docker system prune -a
 # Start fresh
 docker compose up -d
 docker compose exec collector alembic upgrade head
-docker compose exec collector python scripts/sync_config.py
+docker compose exec collector python -m scripts.sync_config
 ```
 
 ---
