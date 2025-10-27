@@ -112,14 +112,14 @@ async def get_candles(
         for candle in candles
     ]
 
-    # Build metadata
+    # Build metadata using URL parameters (avoids accessing starlisting relationships)
     metadata = CandleMetadata(
-        exchange=starlisting.exchange.name,
-        coin=starlisting.coin.symbol,
-        quote=starlisting.quote_currency.symbol,
-        trading_pair=starlisting.get_trading_pair(),
-        market_type=starlisting.market_type.name,
-        interval=starlisting.interval.name,
+        exchange=exchange,
+        coin=coin.upper(),
+        quote=quote.upper(),
+        trading_pair=f"{coin.upper()}/{quote.upper()}",
+        market_type=market_type,
+        interval=interval,
         count=len(candle_responses),
         start_time=start_time,
         end_time=end_time,
