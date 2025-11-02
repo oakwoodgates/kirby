@@ -17,7 +17,7 @@ from hyperliquid.info import Info
 
 from src.config.loader import ConfigLoader
 from src.db.connection import close_db, get_asyncpg_pool, get_session, init_db
-from src.utils.helpers import utc_now
+from src.utils.helpers import truncate_to_minute, utc_now
 from src.utils.logging import setup_logging
 
 
@@ -150,8 +150,10 @@ class FundingBackfillService:
             if not time_ms:
                 return None
 
-            # Convert to datetime
+            # Convert to datetime and truncate to minute precision
+            # (aligns with candle data timestamps and 1-minute storage interval)
             time = datetime.fromtimestamp(time_ms / 1000).astimezone()
+            time = truncate_to_minute(time)
 
             # Extract funding rate and premium
             funding_rate_str = record.get("fundingRate")

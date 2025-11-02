@@ -15,7 +15,7 @@ from websockets.client import WebSocketClientProtocol
 from src.collectors.base import BaseCollector
 from src.db.connection import get_asyncpg_pool, get_session
 from src.db.repositories import StarlistingRepository
-from src.utils.helpers import timestamp_to_datetime, utc_now
+from src.utils.helpers import timestamp_to_datetime, truncate_to_minute, utc_now
 
 
 class HyperliquidFundingCollector(BaseCollector):
@@ -32,6 +32,11 @@ class HyperliquidFundingCollector(BaseCollector):
         super().__init__("hyperliquid_funding")
         self.ws: WebSocketClientProtocol | None = None
         self.subscriptions: dict[str, int] = {}  # coin -> starlisting_id mapping
+
+        # Buffering for 1-minute intervals
+        self.funding_buffer: dict[str, dict[str, Any]] = {}  # coin -> latest funding data
+        self.oi_buffer: dict[str, dict[str, Any]] = {}  # coin -> latest OI data
+        self.flush_task: asyncio.Task | None = None
 
     async def initialize(self) -> None:
         """
@@ -82,6 +87,9 @@ class HyperliquidFundingCollector(BaseCollector):
             # Subscribe to asset contexts for all unique coins
             await self._subscribe_to_asset_contexts()
 
+            # Start periodic flush task (every 1 minute)
+            await self._start_flush_task()
+
         except Exception as e:
             self.logger.error(
                 "Failed to connect to Hyperliquid WebSocket",
@@ -92,6 +100,9 @@ class HyperliquidFundingCollector(BaseCollector):
 
     async def disconnect(self) -> None:
         """Disconnect from Hyperliquid WebSocket."""
+        # Stop flush task first
+        await self._stop_flush_task()
+
         if self.ws:
             try:
                 await self.ws.close()
@@ -104,6 +115,9 @@ class HyperliquidFundingCollector(BaseCollector):
             finally:
                 self.ws = None
                 self.subscriptions.clear()
+                # Clear buffers
+                self.funding_buffer.clear()
+                self.oi_buffer.clear()
 
         await super().disconnect()
 
@@ -254,20 +268,26 @@ class HyperliquidFundingCollector(BaseCollector):
             # Extract open interest data
             oi_data = self._extract_open_interest_data(ctx_data, current_time)
 
-            # Store data ONCE per trading pair using the first starlisting
-            # (Funding/OI are per trading pair, not per interval)
+            # Get canonical starlisting (first one for this coin)
+            # Funding/OI are per trading pair, not per interval
             canonical_starlisting = matching_starlistings[0]
 
-            # Store funding rate
+            # Buffer data (will be flushed every minute)
+            # Store the latest value for each coin - overwrites previous updates within the same minute
             if funding_data:
-                await self._store_funding_rate(funding_data, canonical_starlisting.id)
+                self.funding_buffer[coin] = {
+                    "starlisting_id": canonical_starlisting.id,
+                    **funding_data,
+                }
 
-            # Store open interest
             if oi_data:
-                await self._store_open_interest(oi_data, canonical_starlisting.id)
+                self.oi_buffer[coin] = {
+                    "starlisting_id": canonical_starlisting.id,
+                    **oi_data,
+                }
 
-            self.logger.info(
-                "Stored funding/OI data",
+            self.logger.debug(
+                "Buffered funding/OI data",
                 coin=coin,
                 starlisting_id=canonical_starlisting.id,
                 funding_rate=str(funding_data.get("funding_rate")) if funding_data else None,
@@ -344,102 +364,150 @@ class HyperliquidFundingCollector(BaseCollector):
             )
             return None
 
-    async def _store_funding_rate(
-        self, funding_data: dict[str, Any], starlisting_id: int
-    ) -> None:
-        """Store funding rate data to database."""
+    async def _start_flush_task(self) -> None:
+        """Start the periodic flush task that runs every minute."""
+        if self.flush_task is not None:
+            self.logger.warning("Flush task already running")
+            return
+
+        self.flush_task = asyncio.create_task(self._flush_loop())
+        self.logger.info("Started flush task (1-minute intervals)")
+
+    async def _stop_flush_task(self) -> None:
+        """Stop the periodic flush task."""
+        if self.flush_task is None:
+            return
+
+        self.flush_task.cancel()
+        try:
+            await self.flush_task
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.flush_task = None
+            self.logger.info("Stopped flush task")
+
+    async def _flush_loop(self) -> None:
+        """
+        Periodic flush loop that runs every minute on the minute boundary.
+
+        Flushes buffered funding/OI data to database every 60 seconds.
+        """
+        while True:
+            try:
+                # Calculate time to next minute boundary
+                now = utc_now()
+                seconds_until_next_minute = 60 - now.second
+
+                # Wait until the top of the next minute
+                await asyncio.sleep(seconds_until_next_minute)
+
+                # Flush buffers
+                await self._flush_buffers()
+
+            except asyncio.CancelledError:
+                self.logger.info("Flush loop cancelled")
+                raise
+            except Exception as e:
+                self.logger.error(
+                    "Error in flush loop",
+                    error=str(e),
+                    exc_info=True,
+                )
+                # Continue on error, try again next minute
+                await asyncio.sleep(60)
+
+    async def _flush_buffers(self) -> None:
+        """
+        Flush buffered funding and OI data to database.
+
+        Uses minute-precision timestamps (start of the current minute).
+        """
+        if not self.funding_buffer and not self.oi_buffer:
+            return
+
+        # Get current minute (truncated timestamp)
+        flush_time = truncate_to_minute(utc_now())
+
+        funding_count = len(self.funding_buffer)
+        oi_count = len(self.oi_buffer)
+
         try:
             pool = await get_asyncpg_pool()
 
-            # Add starlisting_id
-            funding_data["starlisting_id"] = starlisting_id
+            # Flush funding rates
+            if self.funding_buffer:
+                for coin, funding_data in self.funding_buffer.items():
+                    await pool.execute(
+                        """
+                        INSERT INTO funding_rates (
+                            starlisting_id, time, funding_rate, premium,
+                            mark_price, index_price, oracle_price, mid_price, next_funding_time
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                        ON CONFLICT (starlisting_id, time)
+                        DO UPDATE SET
+                            funding_rate = EXCLUDED.funding_rate,
+                            premium = EXCLUDED.premium,
+                            mark_price = EXCLUDED.mark_price,
+                            index_price = EXCLUDED.index_price,
+                            oracle_price = EXCLUDED.oracle_price,
+                            mid_price = EXCLUDED.mid_price,
+                            next_funding_time = EXCLUDED.next_funding_time
+                        """,
+                        funding_data["starlisting_id"],
+                        flush_time,  # Use truncated minute timestamp
+                        funding_data["funding_rate"],
+                        funding_data["premium"],
+                        funding_data["mark_price"],
+                        funding_data["index_price"],
+                        funding_data["oracle_price"],
+                        funding_data["mid_price"],
+                        funding_data["next_funding_time"],
+                    )
 
-            # Upsert funding rate
-            await pool.execute(
-                """
-                INSERT INTO funding_rates (
-                    starlisting_id, time, funding_rate, premium,
-                    mark_price, index_price, oracle_price, mid_price, next_funding_time
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                ON CONFLICT (starlisting_id, time)
-                DO UPDATE SET
-                    funding_rate = EXCLUDED.funding_rate,
-                    premium = EXCLUDED.premium,
-                    mark_price = EXCLUDED.mark_price,
-                    index_price = EXCLUDED.index_price,
-                    oracle_price = EXCLUDED.oracle_price,
-                    mid_price = EXCLUDED.mid_price,
-                    next_funding_time = EXCLUDED.next_funding_time
-                """,
-                funding_data["starlisting_id"],
-                funding_data["time"],
-                funding_data["funding_rate"],
-                funding_data["premium"],
-                funding_data["mark_price"],
-                funding_data["index_price"],
-                funding_data["oracle_price"],
-                funding_data["mid_price"],
-                funding_data["next_funding_time"],
+            # Flush open interest
+            if self.oi_buffer:
+                for coin, oi_data in self.oi_buffer.items():
+                    await pool.execute(
+                        """
+                        INSERT INTO open_interest (
+                            starlisting_id, time, open_interest, notional_value,
+                            day_base_volume, day_notional_volume
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6)
+                        ON CONFLICT (starlisting_id, time)
+                        DO UPDATE SET
+                            open_interest = EXCLUDED.open_interest,
+                            notional_value = EXCLUDED.notional_value,
+                            day_base_volume = EXCLUDED.day_base_volume,
+                            day_notional_volume = EXCLUDED.day_notional_volume
+                        """,
+                        oi_data["starlisting_id"],
+                        flush_time,  # Use truncated minute timestamp
+                        oi_data["open_interest"],
+                        oi_data["notional_value"],
+                        oi_data["day_base_volume"],
+                        oi_data["day_notional_volume"],
+                    )
+
+            self.logger.info(
+                "Flushed buffers to database",
+                flush_time=flush_time.isoformat(),
+                funding_count=funding_count,
+                oi_count=oi_count,
             )
 
-            self.logger.debug(
-                "Stored funding rate",
-                starlisting_id=starlisting_id,
-                funding_rate=funding_data["funding_rate"],
-            )
+            # Clear buffers after successful flush
+            self.funding_buffer.clear()
+            self.oi_buffer.clear()
 
         except Exception as e:
             self.logger.error(
-                "Failed to store funding rate",
-                starlisting_id=starlisting_id,
+                "Failed to flush buffers",
                 error=str(e),
+                funding_count=funding_count,
+                oi_count=oi_count,
                 exc_info=True,
             )
-
-    async def _store_open_interest(
-        self, oi_data: dict[str, Any], starlisting_id: int
-    ) -> None:
-        """Store open interest data to database."""
-        try:
-            pool = await get_asyncpg_pool()
-
-            # Add starlisting_id
-            oi_data["starlisting_id"] = starlisting_id
-
-            # Upsert open interest
-            await pool.execute(
-                """
-                INSERT INTO open_interest (
-                    starlisting_id, time, open_interest, notional_value,
-                    day_base_volume, day_notional_volume
-                )
-                VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (starlisting_id, time)
-                DO UPDATE SET
-                    open_interest = EXCLUDED.open_interest,
-                    notional_value = EXCLUDED.notional_value,
-                    day_base_volume = EXCLUDED.day_base_volume,
-                    day_notional_volume = EXCLUDED.day_notional_volume
-                """,
-                oi_data["starlisting_id"],
-                oi_data["time"],
-                oi_data["open_interest"],
-                oi_data["notional_value"],
-                oi_data["day_base_volume"],
-                oi_data["day_notional_volume"],
-            )
-
-            self.logger.debug(
-                "Stored open interest",
-                starlisting_id=starlisting_id,
-                open_interest=oi_data["open_interest"],
-            )
-
-        except Exception as e:
-            self.logger.error(
-                "Failed to store open interest",
-                starlisting_id=starlisting_id,
-                error=str(e),
-                exc_info=True,
-            )
+            # Don't clear buffers on error - will retry next minute

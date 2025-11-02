@@ -40,6 +40,28 @@ def datetime_to_timestamp(dt: datetime) -> int:
     return int(dt.timestamp() * 1000)
 
 
+def truncate_to_minute(dt: datetime) -> datetime:
+    """
+    Truncate datetime to minute precision (remove seconds and microseconds).
+
+    This is used to align funding/OI data timestamps with candle data timestamps.
+    Candle timestamps represent the START of the minute interval.
+
+    Args:
+        dt: Datetime object with any precision
+
+    Returns:
+        Datetime truncated to minute (seconds and microseconds set to 0)
+
+    Example:
+        >>> from datetime import datetime, timezone
+        >>> dt = datetime(2025, 11, 2, 13, 58, 32, 586045, tzinfo=timezone.utc)
+        >>> truncate_to_minute(dt)
+        datetime.datetime(2025, 11, 2, 13, 58, 0, tzinfo=datetime.timezone.utc)
+    """
+    return dt.replace(second=0, microsecond=0)
+
+
 def normalize_candle_data(
     raw_candle: dict[str, Any],
     source: str = "unknown",
