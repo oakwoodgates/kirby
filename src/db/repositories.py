@@ -282,7 +282,7 @@ class CandleRepository:
                 low = EXCLUDED.low,
                 close = EXCLUDED.close,
                 volume = EXCLUDED.volume,
-                num_trades = EXCLUDED.num_trades
+                num_trades = COALESCE(EXCLUDED.num_trades, candles.num_trades)
         """
 
         async with self.pool.acquire() as conn:
