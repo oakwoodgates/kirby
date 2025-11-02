@@ -216,6 +216,7 @@ class FundingBackfillService:
         ]
 
         # Bulk upsert using asyncpg
+        # Use COALESCE to preserve existing data when backfill provides NULL
         query = """
             INSERT INTO funding_rates (
                 starlisting_id, time, funding_rate, premium,
@@ -226,13 +227,13 @@ class FundingBackfillService:
                                  $7::numeric[], $8::numeric[], $9::timestamptz[])
             ON CONFLICT (time, starlisting_id)
             DO UPDATE SET
-                funding_rate = EXCLUDED.funding_rate,
-                premium = EXCLUDED.premium,
-                mark_price = EXCLUDED.mark_price,
-                index_price = EXCLUDED.index_price,
-                oracle_price = EXCLUDED.oracle_price,
-                mid_price = EXCLUDED.mid_price,
-                next_funding_time = EXCLUDED.next_funding_time
+                funding_rate = COALESCE(EXCLUDED.funding_rate, funding_rates.funding_rate),
+                premium = COALESCE(EXCLUDED.premium, funding_rates.premium),
+                mark_price = COALESCE(EXCLUDED.mark_price, funding_rates.mark_price),
+                index_price = COALESCE(EXCLUDED.index_price, funding_rates.index_price),
+                oracle_price = COALESCE(EXCLUDED.oracle_price, funding_rates.oracle_price),
+                mid_price = COALESCE(EXCLUDED.mid_price, funding_rates.mid_price),
+                next_funding_time = COALESCE(EXCLUDED.next_funding_time, funding_rates.next_funding_time)
         """
 
         # Transpose records for UNNEST
