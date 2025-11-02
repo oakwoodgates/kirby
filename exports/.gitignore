@@ -1,0 +1,10 @@
+# Ignore all export files
+*.csv
+*.parquet
+*.json
+
+# Keep this README
+!README.md
+
+# Keep this .gitignore
+!.gitignore

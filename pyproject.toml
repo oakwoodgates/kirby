@@ -43,6 +43,10 @@ dependencies = [
     # Logging & Monitoring
     "structlog>=24.1.0",
     "python-json-logger>=2.0.7",
+
+    # Data Export
+    "pandas>=2.1.0",      # DataFrame operations, CSV/Parquet support
+    "pyarrow>=14.0.0",    # Efficient Parquet file format
 ]
 
 [project.optional-dependencies]

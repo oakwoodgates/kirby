@@ -470,6 +470,76 @@ Once the API is running, visit:
 
 ---
 
+## Data Export
+
+Kirby provides powerful export capabilities for AI/ML training, backtesting, and external analysis.
+
+### Export Scripts
+
+Four CLI scripts are available for exporting data in CSV and Parquet formats:
+
+1. **export_candles.py** - OHLCV candle data with multi-interval support
+2. **export_funding.py** - Funding rate data with price context
+3. **export_oi.py** - Open interest data with volume metrics
+4. **export_all.py** - Merged datasets (candles + funding + OI) for ML/backtesting
+
+### Quick Examples
+
+```bash
+# Export BTC 1m candles for last 30 days (both CSV and Parquet)
+docker compose exec collector python -m scripts.export_candles \
+  --coin BTC --intervals 1m --days 30
+
+# Export merged dataset for ML training (Parquet only)
+docker compose exec collector python -m scripts.export_all \
+  --coin BTC --intervals 1m --days 90 --format parquet
+
+# Export all intervals for multi-timeframe backtesting
+docker compose exec collector python -m scripts.export_all \
+  --coin BTC --intervals all --days 365
+
+# Export funding rates only
+docker compose exec collector python -m scripts.export_funding \
+  --coin BTC --days 30
+```
+
+### File Formats
+
+- **CSV**: Universal format, human-readable, larger file size
+- **Parquet**: Columnar format, ~10x smaller, optimized for pandas/PyTorch/TensorFlow
+
+### Merged Datasets
+
+The `export_all.py` script creates ML-ready datasets by merging:
+- Candle data (OHLCV)
+- Funding rates (with mark/index/oracle prices)
+- Open interest (with volume metrics)
+
+All data is aligned by minute-precision timestamps. Missing values are preserved as NULL (no forward-filling).
+
+### Output Location
+
+Exports are saved to the `exports/` directory with timestamped filenames:
+
+```
+exports/
+├── merged_hyperliquid_BTC_USD_perps_1m_20251102_143022.parquet
+├── merged_hyperliquid_BTC_USD_perps_1m_20251102_143022.json
+└── ... (metadata files)
+```
+
+### Complete Documentation
+
+For comprehensive export documentation including:
+- Advanced usage examples
+- Integration with ML frameworks (PyTorch, TensorFlow, scikit-learn)
+- Best practices and troubleshooting
+- Format comparison and optimization tips
+
+See **[docs/EXPORT.md](docs/EXPORT.md)**
+
+---
+
 ## Development
 
 ### Project Structure

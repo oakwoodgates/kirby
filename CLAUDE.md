@@ -182,6 +182,7 @@ kirby/
 │   │   ├── dependencies.py    # DB session dependency
 │   │   └── routers/           # Route handlers
 │   │       ├── candles.py     # Candle data endpoints
+│   │       ├── funding.py     # Funding rate & open interest endpoints
 │   │       ├── health.py      # Health check endpoints
 │   │       └── starlistings.py # Starlisting endpoints
 │   ├── collectors/             # Data collection services
@@ -203,7 +204,8 @@ kirby/
 │   │   └── loader.py          # YAML → database sync
 │   └── utils/                  # Utilities
 │       ├── helpers.py         # Timestamp conversion, validation, truncate_to_minute()
-│       └── logging.py         # Structured logging setup
+│       ├── logging.py         # Structured logging setup
+│       └── export.py          # Export utilities (CSV/Parquet, metadata, time parsing)
 ├── tests/
 │   ├── conftest.py            # Shared fixtures (test DB, client)
 │   ├── unit/                  # Unit tests (26 tests)
@@ -215,6 +217,10 @@ kirby/
 │   ├── sync_config.py         # Sync YAML config to database
 │   ├── backfill.py            # Backfill historical candle data (CCXT)
 │   ├── backfill_funding.py    # Backfill historical funding rates (Hyperliquid SDK)
+│   ├── export_candles.py      # Export candle data to CSV/Parquet
+│   ├── export_funding.py      # Export funding rate data to CSV/Parquet
+│   ├── export_oi.py           # Export open interest data to CSV/Parquet
+│   ├── export_all.py          # Export merged datasets for ML/backtesting
 │   ├── test_collector_simple.py # Test real data collection
 │   ├── test_full_system.py    # System verification
 │   └── run_tests.py           # Test runner with DB setup
@@ -226,7 +232,8 @@ kirby/
 │       ├── 20251026_0001_initial_schema.py  # Initial schema
 │       └── 20251102_*_add_funding_oi.py     # Funding/OI tables
 ├── docs/                       # Documentation
-│   └── HYPERLIQUID_API_REFERENCE.md  # Hyperliquid API details
+│   ├── HYPERLIQUID_API_REFERENCE.md  # Hyperliquid API details
+│   └── EXPORT.md              # Data export guide (ML/backtesting)
 ├── docker-compose.yml         # Service orchestration
 ├── Dockerfile                 # Production container image
 ├── .dockerignore              # Docker build optimization
@@ -535,6 +542,101 @@ curl "http://localhost:8000/candles/hyperliquid/SOL/USD/perps/15m?start_time=202
 ```
 
 **Interactive Docs**: http://localhost:8000/docs (Swagger UI)
+
+---
+
+## Data Export
+
+Kirby provides comprehensive data export capabilities for AI/ML training, backtesting, and external analysis.
+
+### Export Scripts
+
+Four CLI scripts (`scripts/export_*.py`) export market data to CSV and Parquet formats:
+
+1. **export_candles.py** - Export OHLCV candle data
+   - Multi-interval support: `--intervals 1m`, `--intervals 1m,15m,4h`, or `--intervals all`
+   - Outputs: time, open, high, low, close, volume, num_trades
+
+2. **export_funding.py** - Export funding rate data
+   - Outputs: time, funding_rate, premium, mark_price, index_price, oracle_price, mid_price, next_funding_time
+
+3. **export_oi.py** - Export open interest data
+   - Outputs: time, open_interest, notional_value, day_base_volume, day_notional_volume
+
+4. **export_all.py** - Export merged datasets (RECOMMENDED FOR ML/BACKTESTING)
+   - Merges candles + funding + OI aligned by timestamp
+   - Multi-interval support
+   - Missing values preserved as NULL (no forward-filling)
+   - Perfect for ML training with complete market context
+
+### Key Features
+
+- **Both Formats**: CSV (universal) + Parquet (ML-optimized, ~10x smaller)
+- **Flexible Time Ranges**: `--days 30` or `--start-time YYYY-MM-DD --end-time YYYY-MM-DD`
+- **Metadata Files**: Each export generates `.json` metadata with parameters and stats
+- **Docker Compatible**: Run inside container, exports saved to `exports/` directory
+
+### Usage Examples
+
+```bash
+# Export BTC 1m candles (last 30 days, both formats)
+docker compose exec collector python -m scripts.export_candles \
+  --coin BTC --intervals 1m --days 30
+
+# Export merged dataset for ML training (Parquet only)
+docker compose exec collector python -m scripts.export_all \
+  --coin BTC --intervals 1m --days 90 --format parquet
+
+# Export all intervals for multi-timeframe backtesting
+docker compose exec collector python -m scripts.export_all \
+  --coin BTC --intervals all --days 365
+
+# Export custom date range
+docker compose exec collector python -m scripts.export_all \
+  --coin BTC --intervals 1m \
+  --start-time "2025-10-01" --end-time "2025-11-01"
+```
+
+### Merged Dataset Structure
+
+`export_all.py` creates aligned time-series with:
+- **Base**: Candle timestamps (e.g., 1m intervals)
+- **LEFT JOIN**: Funding rates on time (1m buffered)
+- **LEFT JOIN**: Open interest on time (1m buffered)
+- **Null Strategy**: Missing values preserved as NULL
+
+**Example merged row:**
+```python
+{
+  "time": "2025-11-02 10:00:00",
+  "open": 67500.50, "high": 67800.00, "low": 67400.25, "close": 67650.75,
+  "volume": 1234.56, "num_trades": 542,
+  "funding_rate": 0.000123, "premium": 0.5, "mark_price": 67650.00,
+  "open_interest": 125000.50, "notional_value": 8456789.00
+}
+```
+
+### ML Integration
+
+**Pandas:**
+```python
+import pandas as pd
+df = pd.read_parquet('exports/merged_hyperliquid_BTC_USD_perps_1m_*.parquet')
+```
+
+**PyTorch:**
+```python
+features = torch.tensor(df[['open', 'high', 'low', 'close', 'volume',
+                             'funding_rate', 'open_interest']].values, dtype=torch.float32)
+```
+
+### Documentation
+
+See **[docs/EXPORT.md](docs/EXPORT.md)** for:
+- Complete command reference
+- ML framework integration (PyTorch, TensorFlow, scikit-learn)
+- Format comparison and best practices
+- Troubleshooting guide
 
 ---
 
