@@ -558,23 +558,56 @@ docker image prune -a
 
 ### Step 7.6: Update Application
 
-To update Kirby:
+To update Kirby to the latest version:
+
 ```bash
 cd ~/kirby
 
-# Pull latest changes
+# Step 1: Pull latest changes
 git pull origin main
 
-# Rebuild and restart
-docker compose build
+# Step 2: Stop running services
+docker compose stop
+
+# Step 3: Rebuild Docker images (with clean build)
+docker compose build --no-cache
+
+# Step 4: Start database only (migrations need it)
+docker compose up -d timescaledb
+
+# Step 5: Wait for database to be ready
+sleep 5
+
+# Step 6: Run database migrations
+docker compose run --rm collector alembic upgrade head
+
+# Step 7: Sync configuration (if starlistings.yaml changed)
+docker compose run --rm collector python -m scripts.sync_config
+
+# Step 8: Start all services
 docker compose up -d
 
-# Run any new migrations
-docker compose exec collector alembic upgrade head
+# Step 9: Verify services are running
+docker compose ps
 
-# Check logs
+# Step 10: Check logs for errors
+docker compose logs -f collector api
+```
+
+**Quick Update (if no database/config changes)**:
+```bash
+cd ~/kirby
+git pull origin main
+docker compose down
+docker compose up -d --build
 docker compose logs -f
 ```
+
+**Important Notes**:
+- Use `--no-cache` if you suspect stale builds
+- Always run migrations before starting collector/api
+- Check logs after update to verify services started correctly
+- If update fails, rollback: `git checkout <previous-commit>` and rebuild
 
 ---
 
