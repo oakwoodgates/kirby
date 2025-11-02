@@ -226,3 +226,7 @@ logs/
 
 # Temporary test output
 test_output.txt
+
+# IDE settings
+.vscode/
+.claude/

@@ -819,6 +819,47 @@ docker stats
 - **Rate Limits**: Respectful rate limiting built-in
 - **Market Type**: Perpetuals (perps) only
 
+#### CRITICAL: USD vs USDC Quote Currency
+
+**The Issue**: Hyperliquid displays "USD" in their UI but actually settles all perpetual contracts in **USDC**.
+
+**API Behavior**:
+- **Hyperliquid SDK**: Uses coin symbol only (e.g., `"BTC"`) - quote/settlement currency is implicit (USDC)
+- **CCXT Library**: Uses explicit format `BTC/USDC:USDC` - clearly shows USDC settlement
+- **WebSocket Data**: Returns coin symbol only (e.g., `"coin": "BTC"`)
+
+**Our Implementation Decision**:
+- **Database Storage**: We use `"USD"` as the quote currency symbol (matching Hyperliquid's UI/marketing)
+- **Interpretation**: Treat `USD` as an **alias** for `USDC` when working with Hyperliquid
+- **Rationale**:
+  - Matches how Hyperliquid presents data to users
+  - Simpler for end users (BTC/USD is more intuitive than BTC/USDC)
+  - Doesn't affect functionality since we're only collecting Hyperliquid perps
+  - If adding spot markets in future, we'll need to distinguish USD vs USDC
+
+**When Writing Integration Code**:
+- **SDK calls**: Use just coin symbol (`info.funding_history('BTC')`)
+- **CCXT calls**: Map `USD` → `USDC` (use `BTC/USDC:USDC` format)
+- **Database queries**: Use `quote_currency = "USD"` (our internal representation)
+- **Documentation**: Clarify that Hyperliquid "USD" perpetuals settle in USDC stablecoin
+
+**Example Mapping**:
+```python
+# Our database
+coin = "BTC"
+quote = "USD"  # Stored in DB
+
+# For CCXT API calls
+if exchange == "hyperliquid" and quote == "USD":
+    ccxt_quote = "USDC"
+    ccxt_symbol = f"{coin}/{ccxt_quote}:{ccxt_quote}"  # BTC/USDC:USDC
+
+# For Hyperliquid SDK calls
+if exchange == "hyperliquid":
+    # Just use coin symbol, quote is implicit
+    funding = info.funding_history(coin)  # "BTC"
+```
+
 ### TimescaleDB Specifics
 
 - **Chunk Interval**: 1 day (configurable via `TIMESCALE_CHUNK_TIME_INTERVAL`)

@@ -10,7 +10,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from .models import Candle, Coin, Exchange, Interval, MarketType, QuoteCurrency, Starlisting
+from .models import (
+    Candle,
+    Coin,
+    Exchange,
+    FundingRate,
+    Interval,
+    MarketType,
+    OpenInterest,
+    QuoteCurrency,
+    Starlisting,
+)
 
 ModelType = TypeVar("ModelType")
 
@@ -338,6 +348,220 @@ class CandleRepository:
             query = query.where(Candle.time < end_time)
 
         query = query.order_by(Candle.time.asc()).limit(limit)
+
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+
+class FundingRateRepository:
+    """
+    Repository for FundingRate model.
+    Uses asyncpg for high-performance inserts, SQLAlchemy for queries.
+    """
+
+    def __init__(self, pool: asyncpg.Pool):
+        self.pool = pool
+
+    async def upsert_funding_rates(self, funding_rates: List[dict]) -> int:
+        """
+        Upsert funding rates (insert or update on conflict).
+
+        Args:
+            funding_rates: List of funding rate dictionaries with keys:
+                time, starlisting_id, funding_rate, premium, mark_price,
+                index_price, oracle_price, mid_price, next_funding_time
+
+        Returns:
+            Number of rows affected
+        """
+        if not funding_rates:
+            return 0
+
+        query = """
+            INSERT INTO funding_rates (
+                time, starlisting_id, funding_rate, premium,
+                mark_price, index_price, oracle_price, mid_price, next_funding_time
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (starlisting_id, time)
+            DO UPDATE SET
+                funding_rate = EXCLUDED.funding_rate,
+                premium = EXCLUDED.premium,
+                mark_price = EXCLUDED.mark_price,
+                index_price = EXCLUDED.index_price,
+                oracle_price = EXCLUDED.oracle_price,
+                mid_price = EXCLUDED.mid_price,
+                next_funding_time = EXCLUDED.next_funding_time
+        """
+
+        async with self.pool.acquire() as conn:
+            await conn.executemany(
+                query,
+                [
+                    (
+                        rate["time"],
+                        rate["starlisting_id"],
+                        Decimal(str(rate["funding_rate"])),
+                        Decimal(str(rate["premium"])) if rate.get("premium") is not None else None,
+                        Decimal(str(rate["mark_price"])) if rate.get("mark_price") is not None else None,
+                        Decimal(str(rate["index_price"])) if rate.get("index_price") is not None else None,
+                        Decimal(str(rate["oracle_price"])) if rate.get("oracle_price") is not None else None,
+                        Decimal(str(rate["mid_price"])) if rate.get("mid_price") is not None else None,
+                        rate.get("next_funding_time"),
+                    )
+                    for rate in funding_rates
+                ],
+            )
+
+        return len(funding_rates)
+
+    async def get_latest_funding_rate(
+        self,
+        session: AsyncSession,
+        starlisting_id: int,
+    ) -> FundingRate | None:
+        """Get the latest funding rate for a starlisting."""
+        result = await session.execute(
+            select(FundingRate)
+            .where(FundingRate.starlisting_id == starlisting_id)
+            .order_by(FundingRate.time.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_funding_rates(
+        self,
+        session: AsyncSession,
+        starlisting_id: int,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        limit: int = 1000,
+    ) -> List[FundingRate]:
+        """
+        Get funding rates for a starlisting within a time range.
+
+        Args:
+            session: SQLAlchemy session
+            starlisting_id: Starlisting ID
+            start_time: Start time (inclusive)
+            end_time: End time (exclusive)
+            limit: Maximum number of funding rates to return
+
+        Returns:
+            List of FundingRate objects
+        """
+        query = select(FundingRate).where(FundingRate.starlisting_id == starlisting_id)
+
+        if start_time:
+            query = query.where(FundingRate.time >= start_time)
+        if end_time:
+            query = query.where(FundingRate.time < end_time)
+
+        query = query.order_by(FundingRate.time.desc()).limit(limit)
+
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+
+class OpenInterestRepository:
+    """
+    Repository for OpenInterest model.
+    Uses asyncpg for high-performance inserts, SQLAlchemy for queries.
+    """
+
+    def __init__(self, pool: asyncpg.Pool):
+        self.pool = pool
+
+    async def upsert_open_interest(self, open_interest_records: List[dict]) -> int:
+        """
+        Upsert open interest records (insert or update on conflict).
+
+        Args:
+            open_interest_records: List of open interest dictionaries with keys:
+                time, starlisting_id, open_interest, notional_value,
+                day_base_volume, day_notional_volume
+
+        Returns:
+            Number of rows affected
+        """
+        if not open_interest_records:
+            return 0
+
+        query = """
+            INSERT INTO open_interest (
+                time, starlisting_id, open_interest, notional_value,
+                day_base_volume, day_notional_volume
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (starlisting_id, time)
+            DO UPDATE SET
+                open_interest = EXCLUDED.open_interest,
+                notional_value = EXCLUDED.notional_value,
+                day_base_volume = EXCLUDED.day_base_volume,
+                day_notional_volume = EXCLUDED.day_notional_volume
+        """
+
+        async with self.pool.acquire() as conn:
+            await conn.executemany(
+                query,
+                [
+                    (
+                        record["time"],
+                        record["starlisting_id"],
+                        Decimal(str(record["open_interest"])),
+                        Decimal(str(record["notional_value"])) if record.get("notional_value") is not None else None,
+                        Decimal(str(record["day_base_volume"])) if record.get("day_base_volume") is not None else None,
+                        Decimal(str(record["day_notional_volume"])) if record.get("day_notional_volume") is not None else None,
+                    )
+                    for record in open_interest_records
+                ],
+            )
+
+        return len(open_interest_records)
+
+    async def get_latest_open_interest(
+        self,
+        session: AsyncSession,
+        starlisting_id: int,
+    ) -> OpenInterest | None:
+        """Get the latest open interest record for a starlisting."""
+        result = await session.execute(
+            select(OpenInterest)
+            .where(OpenInterest.starlisting_id == starlisting_id)
+            .order_by(OpenInterest.time.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+    async def get_open_interest(
+        self,
+        session: AsyncSession,
+        starlisting_id: int,
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        limit: int = 1000,
+    ) -> List[OpenInterest]:
+        """
+        Get open interest records for a starlisting within a time range.
+
+        Args:
+            session: SQLAlchemy session
+            starlisting_id: Starlisting ID
+            start_time: Start time (inclusive)
+            end_time: End time (exclusive)
+            limit: Maximum number of records to return
+
+        Returns:
+            List of OpenInterest objects
+        """
+        query = select(OpenInterest).where(OpenInterest.starlisting_id == starlisting_id)
+
+        if start_time:
+            query = query.where(OpenInterest.time >= start_time)
+        if end_time:
+            query = query.where(OpenInterest.time < end_time)
+
+        query = query.order_by(OpenInterest.time.desc()).limit(limit)
 
         result = await session.execute(query)
         return list(result.scalars().all())

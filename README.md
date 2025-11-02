@@ -350,6 +350,99 @@ curl http://localhost:8000/health
 }
 ```
 
+#### Get Funding Rates
+
+```http
+GET /funding/{exchange}/{coin}/{quote}/{market_type}
+```
+
+**Parameters:**
+- `exchange` - Exchange name (e.g., `hyperliquid`)
+- `coin` - Base coin symbol (e.g., `BTC`)
+- `quote` - Quote currency symbol (e.g., `USD`)
+- `market_type` - Market type (e.g., `perps`)
+
+**Query Parameters:**
+- `start_time` (optional) - Start time (ISO 8601 or Unix timestamp)
+- `end_time` (optional) - End time (ISO 8601 or Unix timestamp)
+- `limit` (optional) - Maximum number of records (default: 1000, max: 5000)
+
+**Example:**
+```bash
+curl "http://localhost:8000/funding/hyperliquid/BTC/USD/perps?limit=10"
+```
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "time": "2025-10-26T12:00:00+00:00",
+      "funding_rate": "0.0001000000",
+      "premium": "0.0000500000",
+      "mark_price": "67500.50",
+      "index_price": "67495.00",
+      "oracle_price": "67495.00",
+      "mid_price": "67500.00",
+      "next_funding_time": "2025-10-26T13:00:00+00:00"
+    }
+  ],
+  "metadata": {
+    "exchange": "hyperliquid",
+    "coin": "BTC",
+    "quote": "USD",
+    "trading_pair": "BTC/USD",
+    "market_type": "perps",
+    "count": 10
+  }
+}
+```
+
+#### Get Open Interest
+
+```http
+GET /open-interest/{exchange}/{coin}/{quote}/{market_type}
+```
+
+**Parameters:**
+- `exchange` - Exchange name (e.g., `hyperliquid`)
+- `coin` - Base coin symbol (e.g., `BTC`)
+- `quote` - Quote currency symbol (e.g., `USD`)
+- `market_type` - Market type (e.g., `perps`)
+
+**Query Parameters:**
+- `start_time` (optional) - Start time (ISO 8601 or Unix timestamp)
+- `end_time` (optional) - End time (ISO 8601 or Unix timestamp)
+- `limit` (optional) - Maximum number of records (default: 1000, max: 5000)
+
+**Example:**
+```bash
+curl "http://localhost:8000/open-interest/hyperliquid/BTC/USD/perps?limit=10"
+```
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "time": "2025-10-26T12:00:00+00:00",
+      "open_interest": "12345.67890000",
+      "notional_value": "833333333.5000",
+      "day_base_volume": "98765.43210000",
+      "day_notional_volume": "6666666666.0000"
+    }
+  ],
+  "metadata": {
+    "exchange": "hyperliquid",
+    "coin": "BTC",
+    "quote": "USD",
+    "trading_pair": "BTC/USD",
+    "market_type": "perps",
+    "count": 10
+  }
+}
+```
+
 ### Interactive API Documentation
 
 Once the API is running, visit:
@@ -626,10 +719,14 @@ docker-compose restart
 - 🚧 REST API endpoints
 - 🚧 Health checks and monitoring
 
+### Recently Implemented
+- ✅ Funding rates collection and API endpoints
+- ✅ Open interest collection and API endpoints
+
 ### Future Phases
 - WebSocket API for real-time streaming
 - Additional exchanges (Binance, Coinbase, OKX)
-- More data types (trades, order book, funding rates)
+- More data types (trades, order book, liquidations)
 - Caching layer (Redis)
 - Advanced monitoring (Prometheus, Grafana)
 - Multi-region deployment

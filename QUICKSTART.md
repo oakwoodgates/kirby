@@ -202,6 +202,12 @@ kirby/
 - `GET /candles/{exchange}/{coin}/{quote}/{market_type}/{interval}` - Query candle data
   - Example: `/candles/hyperliquid/BTC/USD/perps/1m`
   - Query params: `?start_time=2025-10-26T00:00:00Z&limit=100`
+- `GET /funding/{exchange}/{coin}/{quote}/{market_type}` - Query funding rate data
+  - Example: `/funding/hyperliquid/BTC/USD/perps`
+  - Query params: `?start_time=2025-10-26T00:00:00Z&limit=100`
+- `GET /open-interest/{exchange}/{coin}/{quote}/{market_type}` - Query open interest data
+  - Example: `/open-interest/hyperliquid/BTC/USD/perps`
+  - Query params: `?start_time=2025-10-26T00:00:00Z&limit=100`
 
 Full API docs: http://localhost:8000/docs (when running)
 
