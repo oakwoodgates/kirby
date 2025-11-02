@@ -8,6 +8,7 @@ Usage:
 """
 import argparse
 import asyncio
+import sys
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -388,6 +389,7 @@ async def main() -> None:
     logger.info("Initializing database connection")
     await init_db()
 
+    service = None
     try:
         # Create backfill service
         service = FundingBackfillService()
@@ -407,10 +409,20 @@ async def main() -> None:
             error=str(e),
             exc_info=True,
         )
+        sys.exit(1)
     finally:
+        # Clean up resources
+        if service and hasattr(service.info, 'ws') and service.info.ws:
+            try:
+                await service.info.ws.close()
+                logger.debug("Closed Hyperliquid WebSocket connection")
+            except Exception:
+                pass  # Ignore errors during cleanup
+
         await close_db()
         logger.info("Database connections closed")
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+    sys.exit(0)
