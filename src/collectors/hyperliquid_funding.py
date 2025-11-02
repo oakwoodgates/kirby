@@ -254,20 +254,22 @@ class HyperliquidFundingCollector(BaseCollector):
             # Extract open interest data
             oi_data = self._extract_open_interest_data(ctx_data, current_time)
 
-            # Store data for each matching starlisting
-            for starlisting in matching_starlistings:
-                # Store funding rate
-                if funding_data:
-                    await self._store_funding_rate(funding_data, starlisting.id)
+            # Store data ONCE per trading pair using the first starlisting
+            # (Funding/OI are per trading pair, not per interval)
+            canonical_starlisting = matching_starlistings[0]
 
-                # Store open interest
-                if oi_data:
-                    await self._store_open_interest(oi_data, starlisting.id)
+            # Store funding rate
+            if funding_data:
+                await self._store_funding_rate(funding_data, canonical_starlisting.id)
+
+            # Store open interest
+            if oi_data:
+                await self._store_open_interest(oi_data, canonical_starlisting.id)
 
             self.logger.info(
                 "Stored funding/OI data",
                 coin=coin,
-                num_starlistings=len(matching_starlistings),
+                starlisting_id=canonical_starlisting.id,
                 funding_rate=str(funding_data.get("funding_rate")) if funding_data else None,
                 open_interest=str(oi_data.get("open_interest")) if oi_data else None,
             )
