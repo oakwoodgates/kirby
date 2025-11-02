@@ -464,16 +464,19 @@ GROUP BY c.symbol, i.name;
 "
 ```
 
-### Step 6.7: Backfill Funding Rates and Open Interest (Optional)
+### Step 6.7: Backfill Funding Rates (Optional)
 
-After your collector is running and collecting real-time funding/OI data, you may want to backfill historical data. This provides historical context for funding rates and open interest trends.
+After your collector is running and collecting real-time funding/OI data, you may want to backfill historical funding rate data. This provides historical context for funding rate trends.
 
 **Important Notes**:
 - ⚠️ All commands use `docker compose exec collector` - runs inside the Docker container
 - Funding rates update hourly on Hyperliquid (24 records/day)
-- Open Interest is backfilled alongside funding data
+- **API Limitation**: Historical endpoint ONLY provides `funding_rate` and `premium`
+  - ❌ NO historical data for: `mark_price`, `oracle_price`, `mid_price`, `open_interest`, `next_funding_time`
+  - ✅ Real-time collector captures ALL fields going forward
+  - Safe to run - won't overwrite real-time data (uses COALESCE)
 - Uses minute-precision timestamps aligned with candle data
-- Safe to run multiple times (UPSERT prevents duplicates)
+- Safe to run multiple times (UPSERT with COALESCE preserves existing data)
 
 #### Backfill 7 Days (Recommended Starting Point)
 
@@ -483,8 +486,8 @@ docker compose exec collector python -m scripts.backfill_funding --coin=BTC --da
 
 # Expected output:
 # - Funding rates: ~168 records (24 per day × 7 days)
-# - Open interest: ~168 records
-# - Both tables updated with minute-precision timestamps
+# - Only funding_rate and premium populated (API limitation)
+# - Other fields (mark_price, OI, etc.) remain NULL or preserve existing real-time data
 ```
 
 #### Backfill Specific Coins
@@ -589,9 +592,10 @@ docker compose exec collector python -m scripts.backfill_funding --coin=BTC --da
 ```
 
 **2. Data Retention**: Consider your storage needs
-- 7 days: ~168 records per coin per table (funding + OI)
-- 30 days: ~720 records per coin per table
-- 365 days: ~8,760 records per coin per table
+- 7 days: ~168 records per coin (24 per day)
+- 30 days: ~720 records per coin
+- 365 days: ~8,760 records per coin
+- **Note**: Backfill only populates funding_rate and premium (API limitation)
 
 **3. Rate Limiting**: The backfill script respects Hyperliquid API limits
 - 7 days: <1 minute per coin
@@ -607,10 +611,11 @@ docker compose exec collector python -m scripts.backfill --coin=BTC --days=30
 docker compose exec collector python -m scripts.backfill_funding --coin=BTC --days=30
 ```
 
-**5. Data Consistency**: Funding/OI backfills use minute-precision timestamps
+**5. Data Consistency**: Funding backfills use minute-precision timestamps
 - Aligns with candle data: `2025-11-02 20:00:00+00`
 - Easy to JOIN: `ON f.time = c.time`
 - Consistent with 1-minute buffering strategy
+- **Real-time collector provides complete data** (all price fields + OI)
 
 #### Common Issues
 
