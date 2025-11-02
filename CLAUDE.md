@@ -9,9 +9,14 @@
 
 ## Overview
 
-Kirby is a high-performance market data ingestion and API system for cryptocurrency exchanges. It collects OHLCV candle data in real-time via WebSocket connections and serves it via a FastAPI REST API to downstream applications (charting tools, AI/ML models, trading bots).
+Kirby is a high-performance market data ingestion and API system for cryptocurrency exchanges. It collects:
+- **OHLCV candle data** in real-time via WebSocket
+- **Funding rates** (1-minute intervals with buffering)
+- **Open interest** (1-minute intervals with buffering)
 
-**Current Deployment**: Successfully deployed on Digital Ocean, collecting real-time data from Hyperliquid exchange.
+All data is served via a FastAPI REST API to downstream applications (charting tools, AI/ML models, trading bots).
+
+**Current Deployment**: Successfully deployed on Digital Ocean, collecting real-time candle, funding, and OI data from Hyperliquid exchange.
 
 ### Key Concept: Starlisting
 
@@ -31,7 +36,7 @@ Example: `hyperliquid/BTC/USD/perps/15m` is one starlisting.
 
 ### Principles
 1. **Secure**: Proper env var handling, data validation, input sanitization
-2. **High Performance**: Async I/O, optimized bulk inserts via asyncpg COPY, connection pooling
+2. **High Performance**: Async I/O, optimized bulk inserts via asyncpg, connection pooling, 1-minute buffering
 3. **Modular & Composable**: Easy to add/remove exchanges, coins, intervals
 4. **Production Ready**: Health checks, monitoring, structured logging, Docker deployment
 
@@ -53,8 +58,11 @@ Example: `hyperliquid/BTC/USD/perps/15m` is one starlisting.
 ### Data Flow
 
 ```
-Real-time Collection:
+Real-time Collection (Candles):
 Hyperliquid WebSocket → Collector → asyncpg (COPY/upsert) → TimescaleDB
+
+Real-time Collection (Funding/OI):
+Hyperliquid WebSocket → In-Memory Buffer → Flush every 60s → asyncpg → TimescaleDB
 
 API Queries:
 Client Apps → FastAPI → SQLAlchemy (read) → TimescaleDB → JSON Response
@@ -66,23 +74,29 @@ YAML (starlistings.yaml) → sync_config.py → Database tables
 ### Service Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Docker Compose Orchestration                   │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│  ┌────────────────┐  ┌──────────────────────┐  │
-│  │  TimescaleDB   │◄─┤  Kirby Collector     │  │
-│  │  (PostgreSQL)  │  │  (WebSocket client)  │  │
-│  │  Port: 5432    │  │  Background service  │  │
-│  └────────┬───────┘  └──────────────────────┘  │
-│           │                                     │
-│           │          ┌──────────────────────┐  │
-│           └─────────►│  Kirby API           │  │
-│                      │  (FastAPI/Uvicorn)   │  │
-│                      │  Port: 8000          │  │
-│                      └──────────────────────┘  │
-│                                                 │
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  Docker Compose Orchestration                       │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  ┌────────────────┐  ┌──────────────────────────┐  │
+│  │  TimescaleDB   │◄─┤  Candle Collector       │  │
+│  │  (PostgreSQL)  │  │  (WebSocket client)      │  │
+│  │  Port: 5432    │  │  Real-time OHLCV data    │  │
+│  │                │  └──────────────────────────┘  │
+│  │                │                                 │
+│  │                │  ┌──────────────────────────┐  │
+│  │                │◄─┤  Funding/OI Collector    │  │
+│  │                │  │  (WebSocket client)      │  │
+│  │                │  │  1-min buffering         │  │
+│  └────────┬───────┘  └──────────────────────────┘  │
+│           │                                         │
+│           │          ┌──────────────────────────┐  │
+│           └─────────►│  Kirby API               │  │
+│                      │  (FastAPI/Uvicorn)       │  │
+│                      │  Port: 8000              │  │
+│                      └──────────────────────────┘  │
+│                                                     │
+└─────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -113,13 +127,40 @@ YAML (starlistings.yaml) → sync_config.py → Database tables
 - Indexes:
   - BRIN on time (efficient for time-series queries)
   - Composite on (starlisting_id, time) for fast filtering
-- ON CONFLICT: Upsert support for reprocessing/backfill
+- ON CONFLICT: Upsert support for reprocessing/backfill with COALESCE to preserve existing data
+
+**funding_rates**: TimescaleDB hypertable for funding rate data (1-minute precision)
+- Primary key: (time, starlisting_id) - composite for uniqueness
+- Columns: funding_rate, premium, mark_price, index_price, oracle_price, mid_price, next_funding_time (all Numeric/Timestamptz)
+- **Storage Strategy**: 1-minute intervals with buffering (1,440 records/day vs 86,400 at per-second)
+- **Timestamp Format**: Minute-precision (seconds/microseconds truncated to 0)
+- **Buffering**: In-memory buffer flushes every 60 seconds on minute boundary
+- **Real-time Data**: Collector captures all price fields via WebSocket
+- **Historical Data**: API only provides funding_rate + premium (no prices/OI)
+- ON CONFLICT: Upsert with COALESCE to preserve existing data when backfill provides NULL
+
+**open_interest**: TimescaleDB hypertable for OI data (1-minute precision)
+- Primary key: (time, starlisting_id) - composite for uniqueness
+- Columns: open_interest, notional_value, day_base_volume, day_notional_volume (all Numeric)
+- **Storage Strategy**: 1-minute intervals with buffering (matches funding_rates)
+- **Timestamp Format**: Minute-precision aligned with candles and funding
+- **Real-time Only**: No historical OI data available from Hyperliquid API
+- ON CONFLICT: Upsert with COALESCE to preserve existing data
+
+### Timestamp Alignment
+
+All tables use **minute-precision timestamps** aligned to the start of the minute for easy JOINs:
+- Format: `2025-11-02 20:00:00+00` (seconds and microseconds are 0)
+- Alignment function: `truncate_to_minute()` in `src/utils/helpers.py`
+- Benefits: Easy to JOIN across tables on `time` column
+- Example query: `SELECT * FROM candles c JOIN funding_rates f ON c.time = f.time AND c.starlisting_id = f.starlisting_id`
 
 ### Database Access Patterns
 
 **Writes** (high-performance via asyncpg):
 - Collectors use asyncpg pool directly
 - Bulk upsert: `INSERT ... ON CONFLICT (time, starlisting_id) DO UPDATE`
+- COALESCE pattern: `COALESCE(EXCLUDED.field, table.field)` preserves existing data
 - ~10x faster than ORM for bulk inserts
 - Connection pooling: 5-20 connections
 
@@ -145,11 +186,12 @@ kirby/
 │   │       └── starlistings.py # Starlisting endpoints
 │   ├── collectors/             # Data collection services
 │   │   ├── base.py            # BaseCollector abstract class
-│   │   ├── hyperliquid.py     # Hyperliquid WebSocket collector
+│   │   ├── hyperliquid.py     # Hyperliquid candle collector (WebSocket)
+│   │   ├── hyperliquid_funding.py  # Hyperliquid funding/OI collector (1-min buffering)
 │   │   └── main.py            # CollectorManager orchestrator
 │   ├── db/                     # Database layer
 │   │   ├── base.py            # SQLAlchemy Base, naming conventions
-│   │   ├── models.py          # ORM models (Exchange, Coin, Starlisting, Candle)
+│   │   ├── models.py          # ORM models (Exchange, Coin, Starlisting, Candle, FundingRate, OpenInterest)
 │   │   ├── connection.py      # asyncpg pool + SQLAlchemy engine
 │   │   └── repositories.py    # Repository pattern (CRUD operations)
 │   ├── schemas/                # Pydantic models
@@ -160,7 +202,7 @@ kirby/
 │   │   ├── settings.py        # Pydantic Settings (env vars)
 │   │   └── loader.py          # YAML → database sync
 │   └── utils/                  # Utilities
-│       ├── helpers.py         # Timestamp conversion, validation
+│       ├── helpers.py         # Timestamp conversion, validation, truncate_to_minute()
 │       └── logging.py         # Structured logging setup
 ├── tests/
 │   ├── conftest.py            # Shared fixtures (test DB, client)
@@ -171,6 +213,8 @@ kirby/
 │       └── test_repositories.py # Repository tests
 ├── scripts/                    # Operational scripts
 │   ├── sync_config.py         # Sync YAML config to database
+│   ├── backfill.py            # Backfill historical candle data (CCXT)
+│   ├── backfill_funding.py    # Backfill historical funding rates (Hyperliquid SDK)
 │   ├── test_collector_simple.py # Test real data collection
 │   ├── test_full_system.py    # System verification
 │   └── run_tests.py           # Test runner with DB setup
@@ -179,7 +223,10 @@ kirby/
 ├── migrations/                 # Alembic migrations
 │   ├── env.py                 # Async migration environment
 │   └── versions/              # Migration files
-│       └── 20251026_0001_initial_schema.py # Initial working schema
+│       ├── 20251026_0001_initial_schema.py  # Initial schema
+│       └── 20251102_*_add_funding_oi.py     # Funding/OI tables
+├── docs/                       # Documentation
+│   └── HYPERLIQUID_API_REFERENCE.md  # Hyperliquid API details
 ├── docker-compose.yml         # Service orchestration
 ├── Dockerfile                 # Production container image
 ├── .dockerignore              # Docker build optimization
@@ -230,7 +277,47 @@ result = await session.execute(
 starlisting_id, is_active = result.one()  # ✅ No objects, no lazy loading
 ```
 
-### 3. Starlisting Configuration
+### 3. 1-Minute Buffering for Funding/OI Data
+**Decision**: Buffer funding/OI updates in memory, flush every 60 seconds
+**Rationale**:
+- **Storage Reduction**: 98.3% reduction (1,440 records/day vs 86,400 at per-second)
+- **Database Performance**: Fewer writes, better query performance
+- **Data Quality**: Latest value within each minute is preserved
+- **Alignment**: Matches candle data granularity for easy JOINs
+- **Timestamp Precision**: Minute-precision timestamps aligned to start of minute
+- **Real-time Serving**: Will use Redis/cache for sub-minute data (future enhancement)
+
+**Implementation**:
+- Two in-memory buffers: `funding_buffer` and `oi_buffer` (dict keyed by coin)
+- Background asyncio task: `_flush_loop()` runs every 60 seconds on minute boundary
+- Overwrites within same minute: Latest WebSocket update wins
+- Flush timestamp: `truncate_to_minute(utc_now())` for consistency
+
+**Performance**:
+- BTC + SOL at 1-second updates: ~172,800 records/day → 2,880 records/day (98.3% reduction)
+- Projected storage: ~1.05 GB/year (vs ~15 GB/year at per-second)
+- Query performance: BRIN indexes work efficiently on minute-precision data
+
+### 4. COALESCE Pattern for Safe Backfills
+**Decision**: Use COALESCE in ON CONFLICT to preserve existing complete data
+**Rationale**:
+- Backfills may provide incomplete data (e.g., funding_rate + premium only)
+- Real-time collector captures all fields (including prices, OI, etc.)
+- COALESCE prevents backfill from overwriting complete data with NULLs
+- Safe to re-run backfills without data loss
+- Pattern: `field = COALESCE(EXCLUDED.field, table.field)`
+
+**Example**:
+```sql
+INSERT INTO funding_rates (...) VALUES (...)
+ON CONFLICT (time, starlisting_id)
+DO UPDATE SET
+    funding_rate = COALESCE(EXCLUDED.funding_rate, funding_rates.funding_rate),
+    premium = COALESCE(EXCLUDED.premium, funding_rates.premium),
+    mark_price = COALESCE(EXCLUDED.mark_price, funding_rates.mark_price)
+```
+
+### 5. Starlisting Configuration
 **Decision**: YAML config file synced to database
 **Rationale**:
 - Version-controlled configuration (YAML in git)
@@ -238,7 +325,7 @@ starlisting_id, is_active = result.one()  # ✅ No objects, no lazy loading
 - Scripts trigger actions (sync, backfill) with explicit control
 - Clean separation of config definition vs. runtime state
 
-### 4. Docker Deployment
+### 6. Docker Deployment
 **Decision**: Single Dockerfile with Docker Compose orchestration
 **Rationale**:
 - Consistent environments (dev, staging, production)
@@ -246,15 +333,15 @@ starlisting_id, is_active = result.one()  # ✅ No objects, no lazy loading
 - Automatic service dependencies and health checks
 - Simple scaling: adjust replicas in compose file
 
-### 5. TimescaleDB Hypertables
-**Decision**: 1-day chunk intervals for candles table
+### 7. TimescaleDB Hypertables
+**Decision**: 1-day chunk intervals for all time-series tables
 **Rationale**:
 - Balance between query performance and metadata overhead
 - Most queries are for recent data (hours to days)
 - Automatic time-based partitioning
 - Efficient data retention policies (future)
 
-### 6. Trading Pairs (Coin + Quote)
+### 8. Trading Pairs (Coin + Quote)
 **Decision**: Separate `quote_currencies` table instead of storing in `coins`
 **Rationale**:
 - BTC/USD ≠ BTC/USDC (different prices, liquidity, markets)
@@ -384,6 +471,7 @@ docker compose logs -f collector
 See **[DEPLOYMENT.md](DEPLOYMENT.md)** for complete guide including:
 - Droplet setup ($12-24/month)
 - Security hardening (UFW, fail2ban, SSH)
+- Backfill instructions (candles and funding/OI)
 - Monitoring and backups
 - Troubleshooting
 
@@ -540,6 +628,43 @@ docker compose exec collector python scripts/test_collector_simple.py
 # Verify system
 docker compose exec collector python scripts/test_full_system.py
 ```
+
+### Backfill Operations
+
+**Important**: All backfill commands must run **inside the Docker container** using `docker compose exec collector`.
+
+#### Backfill Candles (CCXT)
+
+```bash
+# Backfill all active starlistings (365 days)
+docker compose exec collector python -m scripts.backfill --days=365
+
+# Backfill specific coin (BTC, 90 days)
+docker compose exec collector python -m scripts.backfill --coin=BTC --days=90
+
+# Backfill specific exchange
+docker compose exec collector python -m scripts.backfill --exchange=hyperliquid --days=180
+```
+
+#### Backfill Funding Rates (Hyperliquid SDK)
+
+```bash
+# Backfill all active coins (365 days)
+docker compose exec collector python -m scripts.backfill_funding --days=365
+
+# Backfill specific coin (BTC, 30 days)
+docker compose exec collector python -m scripts.backfill_funding --coin=BTC --days=30
+
+# Backfill using --all flag
+docker compose exec collector python -m scripts.backfill_funding --all
+```
+
+**Hyperliquid API Limitations for Historical Funding Data**:
+- ✅ Available: `funding_rate`, `premium`
+- ❌ NOT available: `mark_price`, `oracle_price`, `mid_price`, `open_interest`, `next_funding_time`
+- Real-time collector captures ALL fields going forward
+- Backfill uses COALESCE to preserve existing complete data
+- Safe to run multiple times without data loss
 
 ### Backup and Restore
 
@@ -703,6 +828,17 @@ docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM 
 docker compose restart collector
 ```
 
+### Issue: Backfill Script Hangs
+
+**Symptoms**: Script logs "Database connections closed" but doesn't return to command line
+
+**Cause**: WebSocket connection not being closed properly
+
+**Solution**: Scripts now include explicit WebSocket cleanup in finally blocks. If you encounter this:
+- Press Ctrl+C to exit
+- Check database - data was likely stored successfully
+- Verify with: `docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM funding_rates;"`
+
 ---
 
 ## Performance Considerations
@@ -713,6 +849,7 @@ docker compose restart collector
 - **Limit results**: Always use `LIMIT` clause in queries
 - **Time filters**: Use `start_time` and `end_time` filters
 - **BRIN index**: Efficient for time-based queries
+- **Minute-precision**: All time-series tables use minute-precision for efficient indexing
 
 ### Collector Performance
 
@@ -720,6 +857,7 @@ docker compose restart collector
 - **Connection pooling**: Reuse connections, don't create new ones
 - **Async operations**: Never block the event loop
 - **Error handling**: Graceful reconnection on failures
+- **1-minute buffering**: Reduces database writes by 98.3% for funding/OI data
 
 ### API Performance
 
@@ -734,12 +872,13 @@ docker compose restart collector
 
 ### Key Metrics to Monitor
 
-- **Data freshness**: Time since last candle per starlisting
+- **Data freshness**: Time since last candle/funding/OI per starlisting
 - **Collection lag**: Delay between exchange time and ingestion
 - **API latency**: Response time percentiles (P50, P95, P99)
 - **Error rates**: Failed requests, collector crashes
 - **Throughput**: Candles/second ingested, requests/second served
 - **Database size**: Monitor disk usage and growth rate
+- **Buffer flush**: Check logs for "Flushed buffers to database" every minute
 
 ### Health Checks
 
@@ -755,6 +894,9 @@ docker compose ps
 
 # Resource usage
 docker stats
+
+# Check funding/OI collection
+docker compose logs collector | grep "Flushed buffers"
 ```
 
 ### Logging
@@ -790,17 +932,18 @@ docker stats
 
 ## Future Enhancements
 
-### Planned Features (Not in MVP)
+### Planned Features
 
-- **WebSocket API**: Real-time streaming to clients
-- **Caching Layer**: Redis for frequently accessed data
+- **WebSocket API**: Real-time streaming to clients (with Redis for sub-minute data)
+- **Caching Layer**: Redis for frequently accessed data and real-time serving
 - **More Exchanges**: Binance, Coinbase, OKX, etc.
-- **More Data Types**: Order book, trades, funding rates, open interest
+- **More Data Types**: Order book depth, trade tape
 - **Advanced Monitoring**: Prometheus metrics, Grafana dashboards
 - **Data Retention**: Automatic cleanup of old data
 - **Multi-region**: Geographic distribution for lower latency
 - **Rate Limiting**: API rate limits per client
 - **Authentication**: API keys for authenticated access
+- **Funding/OI API Endpoints**: Dedicated endpoints for funding and OI data
 
 ---
 
@@ -814,10 +957,17 @@ docker stats
 
 ### Hyperliquid Specifics
 
-- **WebSocket**: Real-time candle updates (primary data source)
-- **Intervals**: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 12h, 1d, 1w, 1M
-- **Rate Limits**: Respectful rate limiting built-in
-- **Market Type**: Perpetuals (perps) only
+**Data Collection**:
+- **WebSocket (Candles)**: Real-time OHLCV updates
+- **WebSocket (Funding/OI)**: Real-time via `activeAssetCtx` subscription (1-minute buffering)
+- **Historical API (Candles)**: Via CCXT library
+- **Historical API (Funding)**: Via Hyperliquid SDK `funding_history()` - **LIMITED DATA**
+
+**Intervals**: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 12h, 1d, 1w, 1M
+
+**Rate Limits**: Respectful rate limiting built-in
+
+**Market Type**: Perpetuals (perps) only
 
 #### CRITICAL: USD vs USDC Quote Currency
 
@@ -860,12 +1010,30 @@ if exchange == "hyperliquid":
     funding = info.funding_history(coin)  # "BTC"
 ```
 
+#### Hyperliquid API Limitations
+
+**Historical Funding Data** (`info.funding_history()`):
+- ✅ **Available**: `funding_rate`, `premium`
+- ❌ **NOT Available**: `mark_price`, `index_price`, `oracle_price`, `mid_price`, `next_funding_time`
+- Updates: Hourly (24 records/day per coin)
+
+**Real-time Funding/OI Data** (WebSocket `activeAssetCtx`):
+- ✅ **Available**: ALL fields including prices and open interest
+- Updates: ~Every second
+- Storage: Buffered to 1-minute intervals (98.3% storage reduction)
+
+**No Historical Open Interest**:
+- Hyperliquid API does not provide historical OI data
+- Only real-time OI available via WebSocket
+- Backfill script only handles funding rates
+
 ### TimescaleDB Specifics
 
 - **Chunk Interval**: 1 day (configurable via `TIMESCALE_CHUNK_TIME_INTERVAL`)
 - **Compression**: Not yet enabled (future optimization)
 - **Retention Policy**: Manual for now (automatic in future)
 - **Continuous Aggregates**: Not yet implemented (future for computed intervals)
+- **Hypertables**: candles, funding_rates, open_interest
 
 ### Docker Compose Dependencies
 
@@ -893,6 +1061,10 @@ docker compose exec collector alembic current       # Check migration status
 # Configuration
 docker compose exec collector python -m scripts.sync_config  # Sync YAML to DB
 
+# Backfill (must run inside Docker container)
+docker compose exec collector python -m scripts.backfill --days=365  # Candles
+docker compose exec collector python -m scripts.backfill_funding --days=365  # Funding
+
 # Monitoring
 docker compose logs -f collector                    # Watch collector logs
 curl http://localhost:8000/health                   # Check API health
@@ -901,6 +1073,7 @@ docker stats                                        # Resource usage
 # Database
 docker compose exec timescaledb psql -U kirby -d kirby  # Connect to DB
 docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM candles;"
+docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM funding_rates;"
 
 # Testing
 python scripts/run_tests.py                         # Run all tests
@@ -922,6 +1095,7 @@ python scripts/run_tests.py                         # Run all tests
 - **[docker-compose.yml](docker-compose.yml)**: Service definitions
 - **[config/starlistings.yaml](config/starlistings.yaml)**: Starlisting config
 - **[.env.example](.env.example)**: Environment variable template
+- **[docs/HYPERLIQUID_API_REFERENCE.md](docs/HYPERLIQUID_API_REFERENCE.md)**: Hyperliquid API details
 
 ---
 
@@ -933,28 +1107,56 @@ python scripts/run_tests.py                         # Run all tests
 
 - ✅ **Phase 1**: Foundation - Database schema, models, repositories
 - ✅ **Phase 2**: Configuration - YAML management, sync scripts
-- ✅ **Phase 3**: Data Collection - Hyperliquid WebSocket collector
+- ✅ **Phase 3**: Data Collection - Hyperliquid WebSocket collectors (candles + funding/OI)
 - ✅ **Phase 4**: API Layer - FastAPI endpoints for querying data
 - ✅ **Phase 5**: Testing - 54 tests (100% passing)
 - ✅ **Phase 6**: Deployment - Docker, Digital Ocean guide
 - ✅ **Phase 7**: Production - Successfully collecting real data
+- ✅ **Phase 8**: 1-Minute Buffering - Optimized funding/OI storage (98.3% reduction)
+- ✅ **Phase 9**: Backfill System - Historical data for candles and funding rates
 
 ### Deployment Status
 
 - **Environment**: Digital Ocean Droplet
 - **Status**: Live and collecting data
 - **Uptime**: Since October 26, 2025
-- **Data Collection**: Real-time from Hyperliquid
+- **Data Collection**: Real-time candles, funding rates, and open interest from Hyperliquid
 - **Starlistings**: 8 active (BTC/SOL × USD × perps × 4 intervals)
 - **Tests**: 54/54 passing
+- **Storage Optimization**: 1-minute buffering implemented for funding/OI data
+
+### Current Capabilities
+
+✅ **Real-time Data Collection**:
+- OHLCV candles (1m, 15m, 4h, 1d)
+- Funding rates (1-minute intervals with buffering)
+- Open interest (1-minute intervals with buffering)
+
+✅ **Historical Data Backfill**:
+- Candles via CCXT (all intervals)
+- Funding rates via Hyperliquid SDK (limited fields)
+
+✅ **Storage Optimization**:
+- 98.3% storage reduction for funding/OI data
+- Minute-precision timestamps aligned across all tables
+- COALESCE pattern prevents data loss during backfills
+
+✅ **Production Features**:
+- Docker deployment with health checks
+- Structured logging with context
+- Automatic reconnection on failures
+- Connection pooling for performance
+- Comprehensive error handling
 
 ### Known Limitations
 
 - Single exchange (Hyperliquid) - more exchanges planned
-- No backfill system yet - only real-time collection
+- No funding/OI API endpoints yet - data collected and stored only
 - No WebSocket API - REST only
 - No authentication - public API
 - No rate limiting - unlimited requests
+- Historical funding data incomplete (funding_rate + premium only)
+- No historical open interest data available
 
 ---
 
@@ -962,10 +1164,10 @@ python scripts/run_tests.py                         # Run all tests
 
 This project was built collaboratively with senior engineering oversight and AI assistance (Claude). The codebase follows industry best practices and is designed for production use.
 
-**Last Updated**: October 26, 2025
-**Version**: 1.0.0 - Production Release
-**Status**: ✅ Deployed and collecting real-time data
-**Next Steps**: Monitor stability, add more exchanges and features
+**Last Updated**: November 2, 2025
+**Version**: 1.1.0 - Production with 1-Minute Buffering
+**Status**: ✅ Deployed and collecting real-time candles, funding, and OI data
+**Next Steps**: Add funding/OI API endpoints, Redis caching for real-time serving, expand to more exchanges
 
 ---
 

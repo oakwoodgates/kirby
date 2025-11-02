@@ -66,42 +66,23 @@ Hyperliquid provides three main ways to access market data:
    - Storage: TimescaleDB `candles` table
    - Status: ✅ **Production**
 
-### 📊 HIGH PRIORITY - Recommended Next
-
 2. **Funding Rates**
-   - **What**: Hourly interest rate for perpetual positions
-   - **Why**: Critical for perps trading, arbitrage opportunities
-   - **Available from**:
-     - WebSocket: `activeAssetCtx` channel (real-time)
-     - REST: `fundingHistory` endpoint (historical)
-     - CCXT: `fetch_funding_rate()`, `fetch_funding_rate_history()`
-   - **Data Fields**:
-     - `funding_rate`: Current rate (e.g., 0.0000242817 = 0.002428%)
-     - `premium`: Perpetual premium to index
-     - `mark_price`: Perpetual contract price
-     - `index_price`: Spot index price
-     - `next_funding_time`: When next funding applies
-   - **Collection Frequency**: Every hour (or on change)
-   - **Use Cases**:
-     - Cost of holding positions
-     - Funding arbitrage (long spot + short perp)
-     - Market sentiment indicator
+   - Source: Hyperliquid SDK WebSocket (`activeAssetCtx` channel)
+   - Frequency: Real-time updates with 1-minute buffering
+   - Storage: TimescaleDB `funding_rates` table
+   - Storage Strategy: 98.3% reduction (1-minute intervals vs per-second)
+   - Historical Backfill: Available via `fundingHistory` (⚠️ limited fields: rate + premium only)
+   - Status: ✅ **Production**
 
 3. **Open Interest**
-   - **What**: Total value of all open positions
-   - **Why**: Market sentiment, trend strength indicator
-   - **Available from**:
-     - WebSocket: `activeAssetCtx` channel
-     - REST: `metaAndAssetCtxs` endpoint
-     - CCXT: `fetch_ticker()` includes OI
-   - **Data Fields**:
-     - `open_interest`: Total position size (e.g., 30,310.19836 BTC)
-     - `notional_value`: USD value of all positions
-   - **Collection Frequency**: Every 5-15 minutes (or on significant change)
-   - **Use Cases**:
-     - Trend confirmation (rising price + rising OI = strong trend)
-     - Potential reversals (divergence analysis)
-     - Market participation levels
+   - Source: Hyperliquid SDK WebSocket (`activeAssetCtx` channel)
+   - Frequency: Real-time updates with 1-minute buffering
+   - Storage: TimescaleDB `open_interest` table
+   - Storage Strategy: 1-minute intervals aligned with candles
+   - Historical Backfill: ❌ Not available from Hyperliquid API
+   - Status: ✅ **Production**
+
+### 📊 HIGH PRIORITY - Recommended Next
 
 4. **Order Book (L2 Depth)**
    - **What**: Best bid/ask levels with sizes
@@ -620,19 +601,20 @@ CREATE INDEX idx_orderbook_asks ON order_book_snapshots USING gin(asks);
 
 ## Implementation Priority
 
-### Immediate (Phase 1)
-1. ✅ **Funding Rates** - High value, moderate complexity
-2. ✅ **Open Interest** - Piggybacks on funding rate collector
+### ✅ Completed
+1. ✅ **OHLCV Candles** - Production
+2. ✅ **Funding Rates** - Production with 1-minute buffering
+3. ✅ **Open Interest** - Production with 1-minute buffering
 
 ### Near-term (Phase 2)
-3. **Ticker/Price Feeds** - Quick market stats
-4. **Order Book Snapshots** - If liquidity analysis needed
+4. **Ticker/Price Feeds** - Quick market stats
+5. **Order Book Snapshots** - If liquidity analysis needed
 
 ### Future (Phase 3+)
-5. **Recent Trades** - For flow analysis
-6. **Liquidations** - Volatility indicators
-7. **BBO** - Lightweight spread tracking
-8. **User Data** - Requires authentication layer
+6. **Recent Trades** - For flow analysis
+7. **Liquidations** - Volatility indicators
+8. **BBO** - Lightweight spread tracking
+9. **User Data** - Requires authentication layer
 
 ---
 
@@ -662,15 +644,16 @@ CREATE INDEX idx_orderbook_asks ON order_book_snapshots USING gin(asks);
 | Data Type | Frequency | Size/Row | Daily | Yearly |
 |-----------|-----------|----------|-------|--------|
 | Candles (current) | 1m candles | 80 bytes | ~900 KB | ~328 MB |
-| Funding Rates | Hourly | 50 bytes | ~9.6 KB | ~3.5 MB |
-| Open Interest | 5 min | 60 bytes | ~138 KB | ~50 MB |
+| Funding Rates | **1 min** (buffered) | 50 bytes | ~576 KB | ~210 MB |
+| Open Interest | **1 min** (buffered) | 60 bytes | ~691 KB | ~252 MB |
 | Order Book | 5 min | 2 KB | ~4.6 MB | ~1.7 GB |
 | Trades | Real-time | 100 bytes | Varies | ~1-5 GB |
 
-**Total (with OI + Funding)**: ~378 MB/year (current candles: ~328 MB)
-**Total (with Order Book)**: ~2.1 GB/year
+**Total (current with Funding + OI)**: ~790 MB/year
+**Total (with Order Book)**: ~2.3 GB/year
 
-**TimescaleDB Compression**: Expect 5-10x compression, reducing to ~200-400 MB/year
+**Storage Optimization**: 1-minute buffering achieves 98.3% storage reduction vs per-second storage
+**TimescaleDB Compression**: Expect 5-10x compression, reducing to ~80-160 MB/year for current data
 
 ---
 

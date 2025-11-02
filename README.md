@@ -8,12 +8,13 @@ Kirby ingests real-time and historical market data from multiple cryptocurrency 
 
 ## Features
 
-- **Real-time Data Collection**: WebSocket connections for live OHLCV candle data
-- **Historical Backfills**: Automated retrieval of historical market data
+- **Real-time Data Collection**: WebSocket connections for live OHLCV candles, funding rates, and open interest
+- **1-Minute Buffering**: Optimized storage for funding/OI data (98.3% storage reduction)
+- **Historical Backfills**: Automated retrieval of historical candle and funding rate data
 - **High Performance**: Async I/O with optimized bulk inserts using asyncpg
-- **Time-Series Optimized**: TimescaleDB for efficient storage and querying
+- **Time-Series Optimized**: TimescaleDB with minute-precision timestamps aligned across all data types
 - **Modular Architecture**: Easy to add new exchanges, coins, and market types
-- **Production Ready**: Health checks, monitoring, structured logging
+- **Production Ready**: Health checks, monitoring, structured logging, Docker deployment
 - **Type-Safe**: Full Pydantic validation and type hints throughout
 - **API-First**: FastAPI with auto-generated OpenAPI documentation
 
@@ -203,21 +204,39 @@ docker-compose logs -f collector
 
 ### Backfilling Historical Data
 
+**Important**: All backfill commands must run **inside the Docker container** using `docker compose exec collector`.
+
+#### Backfill Candles
+
 ```bash
 # Backfill all active starlistings (1 year)
-python -m scripts.backfill --all --days=365
+docker compose exec collector python -m scripts.backfill --days=365
 
 # Backfill specific exchange and coin
-python -m scripts.backfill --exchange=hyperliquid --coin=BTC --days=90
+docker compose exec collector python -m scripts.backfill --exchange=hyperliquid --coin=BTC --days=90
 
 # Backfill specific coin (all intervals)
-python -m scripts.backfill --coin=SOL --days=30
-
-# Quick test (1 day of BTC data)
-python -m scripts.backfill --exchange=hyperliquid --coin=BTC --days=1
+docker compose exec collector python -m scripts.backfill --coin=SOL --days=30
 ```
 
-**Note**: The backfill uses CCXT which automatically handles Hyperliquid's USD/USDC mapping. Your data will be stored as USD in the database.
+#### Backfill Funding Rates
+
+```bash
+# Backfill all active coins (1 year)
+docker compose exec collector python -m scripts.backfill_funding --days=365
+
+# Backfill specific coin (BTC, 30 days)
+docker compose exec collector python -m scripts.backfill_funding --coin=BTC --days=30
+
+# Backfill using --all flag
+docker compose exec collector python -m scripts.backfill_funding --all
+```
+
+**Hyperliquid API Limitations**:
+- Historical funding data only includes `funding_rate` and `premium`
+- No historical data for: `mark_price`, `oracle_price`, `mid_price`, `open_interest`
+- Real-time collector captures ALL fields going forward
+- Backfill uses COALESCE to preserve existing complete data (safe to re-run)
 
 ### Health Checks
 
@@ -644,11 +663,12 @@ See full checklist in [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ### Key Metrics
 
-- **Data Freshness**: Time since last candle received
+- **Data Freshness**: Time since last candle/funding/OI received
 - **Collection Lag**: Delay between exchange and ingestion
 - **API Latency**: Response time percentiles (P50, P95, P99)
 - **Error Rates**: Failed requests, collector crashes
 - **Throughput**: Candles/second, requests/second
+- **Buffer Flush**: Check logs for "Flushed buffers to database" every minute
 
 ### Logging
 
@@ -710,26 +730,31 @@ docker-compose restart
 
 ## Roadmap
 
-### Current MVP (Phase 1-2)
+### ✅ Completed Features
 - ✅ TimescaleDB schema with hypertables
 - ✅ Configuration management (YAML → database)
 - ✅ Database repositories and connection pooling
-- 🚧 Hyperliquid WebSocket collector
-- 🚧 Historical backfill system
-- 🚧 REST API endpoints
-- 🚧 Health checks and monitoring
+- ✅ Hyperliquid WebSocket collector (candles)
+- ✅ Hyperliquid WebSocket collector (funding/OI with 1-minute buffering)
+- ✅ Historical backfill system (candles + funding rates)
+- ✅ REST API endpoints (candles, funding, OI, starlistings, health)
+- ✅ Health checks and monitoring
+- ✅ Docker deployment with production guide
+- ✅ 1-minute buffering for funding/OI (98.3% storage reduction)
+- ✅ COALESCE pattern for safe backfills
+- ✅ Minute-precision timestamp alignment across all tables
 
-### Recently Implemented
-- ✅ Funding rates collection and API endpoints
-- ✅ Open interest collection and API endpoints
+### 🚧 In Progress
+- WebSocket API for real-time streaming (with Redis for sub-minute data)
+- Advanced monitoring (Prometheus, Grafana)
 
-### Future Phases
-- WebSocket API for real-time streaming
+### 🔮 Future Phases
 - Additional exchanges (Binance, Coinbase, OKX)
 - More data types (trades, order book, liquidations)
-- Caching layer (Redis)
-- Advanced monitoring (Prometheus, Grafana)
+- Caching layer (Redis for real-time serving)
 - Multi-region deployment
+- Rate limiting and authentication
+- Automated data retention policies
 
 ---
 
