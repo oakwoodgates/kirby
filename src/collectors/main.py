@@ -11,6 +11,7 @@ import structlog
 
 from src.collectors.base import BaseCollector
 from src.collectors.hyperliquid import HyperliquidCollector
+from src.collectors.hyperliquid_funding import HyperliquidFundingCollector
 from src.config.loader import ConfigLoader
 from src.db.connection import close_db, get_session, init_db
 from src.utils.logging import setup_logging
@@ -151,6 +152,7 @@ async def main() -> None:
     # Register collectors
     # Add more collectors here as they are implemented
     manager.register_collector(HyperliquidCollector())
+    manager.register_collector(HyperliquidFundingCollector())
 
     # Set up signal handlers for graceful shutdown
     def signal_handler(sig: int) -> None:

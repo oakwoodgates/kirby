@@ -234,3 +234,96 @@ class Candle(Base):
             f"open={self.open}, high={self.high}, low={self.low}, close={self.close}, "
             f"volume={self.volume})>"
         )
+
+
+class FundingRate(Base):
+    """
+    FundingRate model - represents perpetual futures funding rate data.
+    This will be converted to a TimescaleDB hypertable.
+    """
+
+    __tablename__ = "funding_rates"
+
+    time: Mapped[datetime] = mapped_column(primary_key=True, nullable=False)
+    starlisting_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("starlistings.id"),
+        primary_key=True,
+        nullable=False,
+    )
+
+    # Core funding data
+    funding_rate: Mapped[Decimal] = mapped_column(Numeric(20, 10), nullable=False)
+    premium: Mapped[Decimal | None] = mapped_column(Numeric(20, 10), nullable=True)
+
+    # Price context
+    mark_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    index_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    oracle_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    mid_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+
+    # Timing
+    next_funding_time: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False, server_default="now()"
+    )
+
+    # Relationship
+    starlisting: Mapped["Starlisting"] = relationship("Starlisting")
+
+    __table_args__ = (
+        Index("ix_funding_rates_starlisting_time", "starlisting_id", "time"),
+        Index("ix_funding_rates_time", "time"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<FundingRate(time={self.time}, starlisting_id={self.starlisting_id}, "
+            f"funding_rate={self.funding_rate}, mark_price={self.mark_price})>"
+        )
+
+
+class OpenInterest(Base):
+    """
+    OpenInterest model - represents open interest (total position size) data.
+    This will be converted to a TimescaleDB hypertable.
+    """
+
+    __tablename__ = "open_interest"
+
+    time: Mapped[datetime] = mapped_column(primary_key=True, nullable=False)
+    starlisting_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("starlistings.id"),
+        primary_key=True,
+        nullable=False,
+    )
+
+    # Open interest data
+    open_interest: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
+    notional_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+
+    # Volume context
+    day_base_volume: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
+    day_notional_volume: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+
+    # Metadata
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False, server_default="now()"
+    )
+
+    # Relationship
+    starlisting: Mapped["Starlisting"] = relationship("Starlisting")
+
+    __table_args__ = (
+        Index("ix_open_interest_starlisting_time", "starlisting_id", "time"),
+        Index("ix_open_interest_time", "time"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<OpenInterest(time={self.time}, starlisting_id={self.starlisting_id}, "
+            f"open_interest={self.open_interest}, notional_value={self.notional_value})>"
+        )
