@@ -168,6 +168,9 @@ class HyperliquidFundingCollector(BaseCollector):
                     # Parse message
                     data = json.loads(message)
 
+                    # Log message receipt
+                    self.logger.debug("Received WebSocket message", channel=data.get("channel"))
+
                     # Process asset context update
                     await self._process_message(data)
 
@@ -212,16 +215,22 @@ class HyperliquidFundingCollector(BaseCollector):
             self.logger.debug("Received non-activeAssetCtx message", data=data)
             return
 
-        # Extract context data
-        ctx_data = data.get("data")
-        if not ctx_data:
+        # Extract message data
+        msg_data = data.get("data")
+        if not msg_data:
             self.logger.warning("Asset context message missing data field", data=data)
             return
 
-        # Get coin from context
-        coin = ctx_data.get("coin")
+        # Get coin from message data
+        coin = msg_data.get("coin")
         if not coin:
-            self.logger.warning("Asset context data missing coin", ctx_data=ctx_data)
+            self.logger.warning("Asset context data missing coin", msg_data=msg_data)
+            return
+
+        # Extract the actual context data (nested inside "ctx")
+        ctx_data = msg_data.get("ctx")
+        if not ctx_data:
+            self.logger.warning("Asset context missing ctx field", msg_data=msg_data)
             return
 
         # Find all starlistings for this coin (there may be multiple intervals)
@@ -255,12 +264,12 @@ class HyperliquidFundingCollector(BaseCollector):
                 if oi_data:
                     await self._store_open_interest(oi_data, starlisting.id)
 
-            self.logger.debug(
-                "Processed asset context",
+            self.logger.info(
+                "Stored funding/OI data",
                 coin=coin,
                 num_starlistings=len(matching_starlistings),
-                funding_rate=funding_data.get("funding_rate") if funding_data else None,
-                open_interest=oi_data.get("open_interest") if oi_data else None,
+                funding_rate=str(funding_data.get("funding_rate")) if funding_data else None,
+                open_interest=str(oi_data.get("open_interest")) if oi_data else None,
             )
 
         except Exception as e:
