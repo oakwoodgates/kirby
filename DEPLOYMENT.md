@@ -464,6 +464,179 @@ GROUP BY c.symbol, i.name;
 "
 ```
 
+### Step 6.7: Backfill Funding Rates and Open Interest (Optional)
+
+After your collector is running and collecting real-time funding/OI data, you may want to backfill historical data. This provides historical context for funding rates and open interest trends.
+
+**Important Notes**:
+- ⚠️ All commands use `docker compose exec collector` - runs inside the Docker container
+- Funding rates update hourly on Hyperliquid (24 records/day)
+- Open Interest is backfilled alongside funding data
+- Uses minute-precision timestamps aligned with candle data
+- Safe to run multiple times (UPSERT prevents duplicates)
+
+#### Backfill 7 Days (Recommended Starting Point)
+
+```bash
+# Backfill 7 days for BTC
+docker compose exec collector python -m scripts.backfill_funding --coin=BTC --days=7
+
+# Expected output:
+# - Funding rates: ~168 records (24 per day × 7 days)
+# - Open interest: ~168 records
+# - Both tables updated with minute-precision timestamps
+```
+
+#### Backfill Specific Coins
+
+```bash
+# Backfill 30 days for SOL
+docker compose exec collector python -m scripts.backfill_funding --coin=SOL --days=30
+
+# Backfill 90 days for both BTC and SOL (run separately)
+docker compose exec collector python -m scripts.backfill_funding --coin=BTC --days=90
+docker compose exec collector python -m scripts.backfill_funding --coin=SOL --days=90
+```
+
+#### Backfill All Configured Coins
+
+```bash
+# Backfill 30 days for all coins in starlistings.yaml
+docker compose exec collector python -m scripts.backfill_funding --all --days=30
+
+# For maximum historical data (365 days)
+docker compose exec collector python -m scripts.backfill_funding --all --days=365
+```
+
+#### Monitor Backfill Progress
+
+```bash
+# Watch backfill logs
+docker compose logs -f collector
+
+# Check funding rates count
+docker compose exec timescaledb psql -U kirby -d kirby -c "
+SELECT COUNT(*) as total_funding_records FROM funding_rates;
+"
+
+# Check open interest count
+docker compose exec timescaledb psql -U kirby -d kirby -c "
+SELECT COUNT(*) as total_oi_records FROM open_interest;
+"
+
+# View recent funding/OI data by coin
+docker compose exec timescaledb psql -U kirby -d kirby -c "
+SELECT
+  co.symbol as coin,
+  COUNT(DISTINCT f.time) as funding_records,
+  COUNT(DISTINCT o.time) as oi_records,
+  MIN(f.time) as earliest,
+  MAX(f.time) as latest
+FROM funding_rates f
+JOIN starlistings s ON f.starlisting_id = s.id
+JOIN coins co ON s.coin_id = co.id
+LEFT JOIN open_interest o ON f.time = o.time AND f.starlisting_id = o.starlisting_id
+GROUP BY co.symbol
+ORDER BY co.symbol;
+"
+```
+
+#### Verify Backfill Data Quality
+
+```bash
+# Check for gaps in funding data (should update hourly)
+docker compose exec timescaledb psql -U kirby -d kirby -c "
+SELECT
+  time,
+  funding_rate,
+  mark_price,
+  open_interest
+FROM funding_rates f
+JOIN starlistings s ON f.starlisting_id = s.id
+JOIN coins c ON s.coin_id = c.id
+WHERE c.symbol = 'BTC'
+ORDER BY time DESC
+LIMIT 10;
+"
+
+# Verify timestamp alignment with candles
+docker compose exec timescaledb psql -U kirby -d kirby -c "
+SELECT
+  'candles' as source,
+  time,
+  close as value
+FROM candles
+WHERE starlisting_id = 1
+ORDER BY time DESC
+LIMIT 3
+UNION ALL
+SELECT
+  'funding' as source,
+  time,
+  funding_rate as value
+FROM funding_rates
+WHERE starlisting_id = 1
+ORDER BY time DESC
+LIMIT 3;
+"
+```
+
+#### Backfill Best Practices
+
+**1. Start Small**: Always test with 7 days first
+```bash
+docker compose exec collector python -m scripts.backfill_funding --coin=BTC --days=7
+```
+
+**2. Data Retention**: Consider your storage needs
+- 7 days: ~168 records per coin per table (funding + OI)
+- 30 days: ~720 records per coin per table
+- 365 days: ~8,760 records per coin per table
+
+**3. Rate Limiting**: The backfill script respects Hyperliquid API limits
+- 7 days: <1 minute per coin
+- 30 days: 1-2 minutes per coin
+- 365 days: 5-10 minutes per coin
+
+**4. Concurrent Backfills**: Safe to backfill candles and funding simultaneously
+```bash
+# Terminal 1: Backfill candles
+docker compose exec collector python -m scripts.backfill --coin=BTC --days=30
+
+# Terminal 2: Backfill funding (simultaneously)
+docker compose exec collector python -m scripts.backfill_funding --coin=BTC --days=30
+```
+
+**5. Data Consistency**: Funding/OI backfills use minute-precision timestamps
+- Aligns with candle data: `2025-11-02 20:00:00+00`
+- Easy to JOIN: `ON f.time = c.time`
+- Consistent with 1-minute buffering strategy
+
+#### Common Issues
+
+**Issue**: "No funding history found"
+```bash
+# Verify coin symbol is correct (case-sensitive)
+docker compose exec collector python -m scripts.backfill_funding --coin=BTC --days=1
+
+# Check if coin exists in starlistings
+docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT * FROM coins;"
+```
+
+**Issue**: Backfill is slow
+```bash
+# This is normal - funding history API has rate limits
+# For 365 days, expect 5-10 minutes per coin
+# Monitor progress with: docker compose logs -f collector
+```
+
+**Issue**: Duplicate prevention
+```bash
+# Safe to re-run - uses UPSERT (ON CONFLICT DO UPDATE)
+# Will update existing records, not create duplicates
+docker compose exec collector python -m scripts.backfill_funding --coin=BTC --days=7
+```
+
 ---
 
 ## 7. Monitoring and Maintenance
