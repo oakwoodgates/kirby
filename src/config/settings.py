@@ -41,6 +41,22 @@ class Settings(BaseSettings):
         description="Chunk time interval for hypertables",
     )
 
+    # Training Database Configuration (for ML/Backtesting with Binance, Bybit, etc.)
+    training_db: str = Field(
+        default="kirby_training",
+        description="Training database name",
+    )
+    training_database_url: PostgresDsn | None = Field(
+        default=None,
+        description="Training database connection URL for ML/backtesting data",
+    )
+    training_database_pool_size: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Training database connection pool size",
+    )
+
     # API Configuration
     api_host: str = Field(default="0.0.0.0", description="API host")
     api_port: int = Field(default=8000, ge=1, le=65535, description="API port")

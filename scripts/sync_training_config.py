@@ -16,11 +16,9 @@ from pathlib import Path
 import structlog
 import yaml
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.config.settings import Settings
-from src.db.base import Base
-from src.db.connection import close_db, get_session, init_db
 from src.db.models import Coin, Exchange, Interval, MarketType, QuoteCurrency, Starlisting
 from src.utils.logging import setup_logging
 
@@ -410,22 +408,30 @@ async def main() -> None:
 
     logger.info("Using training database", url=str(training_db_url))
 
-    # Initialize database with training URL
-    await init_db(database_url=str(training_db_url))
+    # Create direct engine and session for training database
+    # This bypasses the global connection cache which points to production DB
+    engine = create_async_engine(
+        str(training_db_url),
+        echo=False,
+        pool_size=5,
+        max_overflow=10,
+    )
+
+    async_session_factory = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
 
     try:
         # Load config
         config_path = Path("config/training_stars.yaml")
         syncer = TrainingConfigSyncer(config_path)
 
-        # Get session
-        session = await get_session(database_url=str(training_db_url))
-
-        try:
+        # Create session directly from training database engine
+        async with async_session_factory() as session:
             # Sync configuration
             await syncer.sync(session)
-        finally:
-            await session.close()
 
         logger.info("Training config sync completed successfully")
 
@@ -433,7 +439,9 @@ async def main() -> None:
         logger.error("Training config sync failed", error=str(e), exc_info=True)
         raise
     finally:
-        await close_db()
+        # Clean up engine
+        await engine.dispose()
+        logger.info("Training database connection closed")
 
 
 if __name__ == "__main__":
