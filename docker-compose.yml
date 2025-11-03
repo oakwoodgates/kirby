@@ -71,8 +71,29 @@ services:
       timeout: 10s
       retries: 3
 
+  # pgAdmin - Database GUI
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: kirby-pgadmin
+    restart: unless-stopped
+    depends_on:
+      - timescaledb
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@kirby.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - kirby-network
+
 volumes:
   timescaledb_data:
+    driver: local
+  pgadmin_data:
     driver: local
 
 networks:

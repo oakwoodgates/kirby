@@ -74,30 +74,61 @@ YAML (starlistings.yaml) → sync_config.py → Database tables
 ### Service Architecture
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Docker Compose Orchestration                       │
-├─────────────────────────────────────────────────────┤
-│                                                     │
-│  ┌────────────────┐  ┌──────────────────────────┐  │
-│  │  TimescaleDB   │◄─┤  Candle Collector       │  │
-│  │  (PostgreSQL)  │  │  (WebSocket client)      │  │
-│  │  Port: 5432    │  │  Real-time OHLCV data    │  │
-│  │                │  └──────────────────────────┘  │
-│  │                │                                 │
-│  │                │  ┌──────────────────────────┐  │
-│  │                │◄─┤  Funding/OI Collector    │  │
-│  │                │  │  (WebSocket client)      │  │
-│  │                │  │  1-min buffering         │  │
-│  └────────┬───────┘  └──────────────────────────┘  │
-│           │                                         │
-│           │          ┌──────────────────────────┐  │
-│           └─────────►│  Kirby API               │  │
-│                      │  (FastAPI/Uvicorn)       │  │
-│                      │  Port: 8000              │  │
-│                      └──────────────────────────┘  │
-│                                                     │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  Docker Compose Orchestration                               │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  ┌────────────────┐  ┌──────────────────────────┐          │
+│  │  TimescaleDB   │◄─┤  Candle Collector       │          │
+│  │  (PostgreSQL)  │  │  (WebSocket client)      │          │
+│  │  Port: 5432    │  │  Real-time OHLCV data    │          │
+│  │                │  └──────────────────────────┘          │
+│  │                │                                         │
+│  │                │  ┌──────────────────────────┐          │
+│  │                │◄─┤  Funding/OI Collector    │          │
+│  │                │  │  (WebSocket client)      │          │
+│  │                │  │  1-min buffering         │          │
+│  └────┬───────┬───┘  └──────────────────────────┘          │
+│       │       │                                             │
+│       │       │      ┌──────────────────────────┐          │
+│       │       └─────►│  Kirby API               │          │
+│       │              │  (FastAPI/Uvicorn)       │          │
+│       │              │  Port: 8000              │          │
+│       │              └──────────────────────────┘          │
+│       │                                                     │
+│       │              ┌──────────────────────────┐          │
+│       └─────────────►│  pgAdmin                 │          │
+│                      │  (Database GUI)          │          │
+│                      │  Port: 5050              │          │
+│                      └──────────────────────────┘          │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+### Database GUI (pgAdmin)
+
+pgAdmin is included as an optional web-based database administration tool for exploring and querying the database.
+
+**Access (Local):**
+- URL: http://localhost:5050
+- Default credentials: See `.env` file (PGADMIN_EMAIL, PGADMIN_PASSWORD)
+
+**Access (Digital Ocean - SSH Tunnel):**
+```bash
+# From local machine
+ssh -L 5050:localhost:5050 your-user@your-server-ip
+
+# Then access http://localhost:5050 in browser
+```
+
+**Features:**
+- Browse all tables (candles, funding_rates, open_interest, starlistings, etc.)
+- Run SQL queries with syntax highlighting
+- Export data to CSV, JSON, Excel
+- View table schemas, indexes, constraints
+- Monitor database size and performance
+
+**Documentation:** See [docs/PGADMIN.md](docs/PGADMIN.md) for complete setup and usage guide.
 
 ---
 
