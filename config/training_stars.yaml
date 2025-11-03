@@ -1,0 +1,123 @@
+# Training Stars Configuration
+# This configuration defines which exchange/coin/interval combinations to collect
+# for machine learning training and backtesting purposes.
+#
+# Training Stars are separate from Production Star Listings:
+# - Production (starlistings.yaml): Real-time Hyperliquid data for live trading
+# - Training (training_stars.yaml): Historical data from multiple exchanges for ML/backtesting
+#
+# Usage:
+#   python -m scripts.sync_training_config  # Sync this config to training database
+#   python -m scripts.backfill_training --days=365  # Backfill historical data
+
+# Exchanges to collect training data from
+exchanges:
+  - name: binance
+    display_name: Binance
+    active: true
+  # Add more exchanges as needed:
+  # - name: bybit
+  #   display_name: Bybit
+  #   active: true
+  # - name: okx
+  #   display_name: OKX
+  #   active: true
+
+# Cryptocurrency assets
+coins:
+  - symbol: BTC
+    name: Bitcoin
+    active: true
+  - symbol: ETH
+    name: Ethereum
+    active: true
+  - symbol: SOL
+    name: Solana
+    active: true
+  # Add more coins as needed
+
+# Quote currencies (what the coins are priced in)
+quote_currencies:
+  - symbol: USDT
+    name: Tether USD
+    active: true
+  - symbol: BUSD
+    name: Binance USD
+    active: false  # Binance discontinued BUSD
+  # Add more quote currencies as needed
+
+# Market types
+market_types:
+  - name: perps
+    display_name: Perpetual Futures
+    active: true
+  - name: spot
+    display_name: Spot
+    active: true
+
+# Time intervals for candle data
+intervals:
+  - name: 1m
+    seconds: 60
+    active: true
+  - name: 5m
+    seconds: 300
+    active: true
+  - name: 15m
+    seconds: 900
+    active: true
+  - name: 1h
+    seconds: 3600
+    active: true
+  - name: 4h
+    seconds: 14400
+    active: true
+  - name: 1d
+    seconds: 86400
+    active: true
+
+# Training Stars - combinations to collect
+training_stars:
+  # Binance BTC - Comprehensive set for ML training
+  - exchange: binance
+    coin: BTC
+    quote: USDT
+    market_type: perps
+    intervals: [1m, 5m, 15m, 1h, 4h, 1d]
+    active: true
+    notes: "Primary BTC training data - perpetual futures"
+
+  - exchange: binance
+    coin: BTC
+    quote: USDT
+    market_type: spot
+    intervals: [1m, 5m, 15m, 1h, 4h, 1d]
+    active: true
+    notes: "BTC spot for comparison with perps"
+
+  # Binance ETH - Second most liquid asset
+  - exchange: binance
+    coin: ETH
+    quote: USDT
+    market_type: perps
+    intervals: [1m, 5m, 15m, 1h, 4h, 1d]
+    active: true
+    notes: "ETH perpetual futures training data"
+
+  # Binance SOL - Altcoin representation
+  - exchange: binance
+    coin: SOL
+    quote: USDT
+    market_type: perps
+    intervals: [1m, 5m, 15m, 1h, 4h, 1d]
+    active: true
+    notes: "SOL perpetual futures for alt analysis"
+
+  # Add more training stars as needed:
+  # - exchange: bybit
+  #   coin: BTC
+  #   quote: USDT
+  #   market_type: perps
+  #   intervals: [1m, 15m, 1h, 4h]
+  #   active: true
+  #   notes: "Bybit BTC for multi-exchange comparison"
