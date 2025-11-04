@@ -818,6 +818,36 @@ docker compose exec collector python -m scripts.backfill_funding --all
 - Backfill uses COALESCE to preserve existing complete data
 - Safe to run multiple times without data loss
 
+#### Backfill Training Data (with VPN for Geo-Restricted APIs)
+
+For backfilling training data from exchanges that have geo-restrictions (like Binance), use the `collector-training` service with NordVPN:
+
+**Prerequisites**: Set up NordVPN (see [docs/NORDVPN_SETUP.md](docs/NORDVPN_SETUP.md))
+
+```bash
+# Start VPN first
+docker compose up -d vpn
+
+# Backfill training data from Binance (BTC, 7 days)
+docker compose run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=7
+
+# Backfill multiple coins
+docker compose run --rm collector-training python -m scripts.backfill_training --coin=SOL --days=30
+docker compose run --rm collector-training python -m scripts.backfill_training --coin=ETH --days=30
+
+# Export training data for ML
+docker compose run --rm collector-training python -m scripts.export_all --coin=BTC --intervals=1m --days=30 --format=parquet
+
+# Stop VPN when done
+docker compose stop vpn
+```
+
+**Key Points**:
+- Uses `docker compose run --rm` (not `exec`) - creates temporary container
+- Routes all traffic through VPN automatically
+- Only training collector uses VPN (production collector unaffected)
+- See full VPN setup guide: [docs/NORDVPN_SETUP.md](docs/NORDVPN_SETUP.md)
+
 ### Backup and Restore
 
 ```bash
@@ -1221,8 +1251,17 @@ docker compose exec collector python -m scripts.sync_training_config # Sync trai
 docker compose exec collector python -m scripts.backfill --days=365          # Candles
 docker compose exec collector python -m scripts.backfill_funding --days=365  # Funding
 
-# Backfill Training (for ML/backtesting)
-docker compose exec collector python -m scripts.backfill_training --coin=BTC --days=7  # Training data
+# Backfill Training (for ML/backtesting with VPN for geo-restricted APIs)
+docker compose up -d vpn                                                      # Start VPN first
+docker compose run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=7  # Training data
+docker compose stop vpn                                                       # Stop VPN when done
+
+# VPN Operations (for accessing Binance/geo-restricted APIs)
+docker compose up -d vpn                                # Start VPN
+docker compose logs -f vpn                              # Watch VPN connection
+docker compose exec vpn curl https://ipinfo.io/json     # Verify VPN IP/country
+docker compose exec vpn curl https://api.binance.com/api/v3/ping  # Test Binance access
+docker compose stop vpn                                 # Stop VPN
 
 # Monitoring
 docker compose logs -f collector                    # Watch collector logs
@@ -1260,6 +1299,9 @@ python scripts/run_tests.py                         # Run all tests
 - **[config/starlistings.yaml](config/starlistings.yaml)**: Starlisting config
 - **[.env.example](.env.example)**: Environment variable template
 - **[docs/HYPERLIQUID_API_REFERENCE.md](docs/HYPERLIQUID_API_REFERENCE.md)**: Hyperliquid API details
+- **[docs/EXPORT.md](docs/EXPORT.md)**: Data export guide (ML/backtesting)
+- **[docs/NORDVPN_SETUP.md](docs/NORDVPN_SETUP.md)**: NordVPN integration for geo-restricted APIs
+- **[docs/PGADMIN.md](docs/PGADMIN.md)**: pgAdmin database GUI guide
 
 ---
 
