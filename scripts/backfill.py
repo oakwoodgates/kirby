@@ -14,6 +14,8 @@ from typing import Any
 import asyncpg
 import ccxt
 import structlog
+from binance.client import Client as BinanceClient
+from binance.exceptions import BinanceAPIException
 
 from src.config.loader import ConfigLoader
 from src.db.connection import close_db, get_asyncpg_pool, get_session, init_db
@@ -33,6 +35,7 @@ class BackfillService:
         """
         self.logger = structlog.get_logger("kirby.scripts.backfill")
         self.exchange_clients: dict[str, ccxt.Exchange] = {}
+        self.binance_client: BinanceClient | None = None
         self.database_url = database_url
         self._custom_pool = None
 
@@ -107,6 +110,58 @@ class BackfillService:
             )
 
         return self.exchange_clients[exchange_name]
+
+    def get_binance_client(self) -> BinanceClient:
+        """
+        Get or create Binance raw API client for num_trades data.
+
+        Returns:
+            Binance Client instance
+        """
+        if not self.binance_client:
+            # No API key needed for public market data
+            self.binance_client = BinanceClient()
+            self.logger.info("Created Binance raw API client")
+        return self.binance_client
+
+    async def fetch_binance_klines(
+        self,
+        symbol: str,
+        interval: str,
+        start_time: int,
+        limit: int = 500,
+    ) -> list[list]:
+        """
+        Fetch klines from Binance raw API with num_trades field.
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
+            interval: Kline interval (e.g., "1m", "15m", "4h")
+            start_time: Start time in milliseconds
+            limit: Number of klines to fetch (max 1000)
+
+        Returns:
+            List of klines with format:
+                [open_time, open, high, low, close, volume, close_time,
+                 quote_volume, num_trades, taker_buy_base, taker_buy_quote, ignore]
+        """
+        client = self.get_binance_client()
+        try:
+            # Binance SDK's get_klines is synchronous, so run in executor
+            loop = asyncio.get_event_loop()
+            klines = await loop.run_in_executor(
+                None,
+                lambda: client.get_klines(
+                    symbol=symbol,
+                    interval=interval,
+                    startTime=start_time,
+                    limit=limit,
+                ),
+            )
+            return klines
+        except BinanceAPIException as e:
+            self.logger.error("Binance API error", error=str(e), exc_info=True)
+            raise
 
     async def backfill_starlisting(
         self,
@@ -187,13 +242,32 @@ class BackfillService:
             current_since = since
             while current_since < end_ms:
                 try:
-                    # Fetch OHLCV data
-                    ohlcv = exchange.fetch_ohlcv(
-                        symbol=symbol,
-                        timeframe=interval,
-                        since=current_since,
-                        limit=batch_size,
-                    )
+                    # Fetch OHLCV data - use Binance raw API or CCXT
+                    if exchange_name == "binance":
+                        # Use Binance raw API for num_trades field
+                        # Convert symbol format: BTC/USDT:USDT → BTCUSDT
+                        binance_symbol = symbol.replace("/", "").replace(":", "")
+                        # Handle spot vs futures suffix
+                        if "USDT" in binance_symbol:
+                            # Extract base currency: BTCUSDT:USDT → BTCUSDT
+                            binance_symbol = binance_symbol.split("USDT")[0] + "USDT"
+
+                        ohlcv = await self.fetch_binance_klines(
+                            symbol=binance_symbol,
+                            interval=interval,
+                            start_time=current_since,
+                            limit=batch_size,
+                        )
+                        data_source = "binance_raw"
+                    else:
+                        # Use CCXT unified interface for other exchanges
+                        ohlcv = exchange.fetch_ohlcv(
+                            symbol=symbol,
+                            timeframe=interval,
+                            since=current_since,
+                            limit=batch_size,
+                        )
+                        data_source = "ccxt"
 
                     if not ohlcv:
                         self.logger.info(
@@ -205,8 +279,8 @@ class BackfillService:
                     # Process candles
                     for raw_candle in ohlcv:
                         try:
-                            # Normalize candle
-                            candle = normalize_candle_data(raw_candle, source="ccxt")
+                            # Normalize candle with appropriate source
+                            candle = normalize_candle_data(raw_candle, source=data_source)
 
                             # Validate candle
                             if not validate_candle(candle):

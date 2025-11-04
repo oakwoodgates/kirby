@@ -63,15 +63,15 @@ def truncate_to_minute(dt: datetime) -> datetime:
 
 
 def normalize_candle_data(
-    raw_candle: dict[str, Any],
+    raw_candle: dict[str, Any] | list[Any],
     source: str = "unknown",
 ) -> dict[str, Any]:
     """
     Normalize candle data from various exchange formats to Kirby format.
 
     Args:
-        raw_candle: Raw candle data from exchange
-        source: Source exchange name
+        raw_candle: Raw candle data from exchange (dict or list)
+        source: Source exchange name (hyperliquid, ccxt, binance_raw)
 
     Returns:
         Normalized candle dict with keys:
@@ -98,6 +98,19 @@ def normalize_candle_data(
             "close": float(raw_candle[4]),
             "volume": float(raw_candle[5]) if raw_candle[5] else 0,
             "num_trades": None,
+        }
+    elif source == "binance_raw":
+        # Binance raw API format: 12 fields
+        # [open_time, open, high, low, close, volume, close_time, quote_volume,
+        #  num_trades, taker_buy_base, taker_buy_quote, ignore]
+        return {
+            "time": timestamp_to_datetime(raw_candle[0]),
+            "open": float(raw_candle[1]),
+            "high": float(raw_candle[2]),
+            "low": float(raw_candle[3]),
+            "close": float(raw_candle[4]),
+            "volume": float(raw_candle[5]) if raw_candle[5] else 0,
+            "num_trades": int(raw_candle[8]) if raw_candle[8] is not None else None,
         }
     else:
         raise ValueError(f"Unknown candle source: {source}")
