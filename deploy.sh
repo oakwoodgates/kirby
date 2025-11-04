@@ -148,15 +148,15 @@ echo -e "${GREEN}[✓] TimescaleDB extension enabled${NC}"
 # Run migrations on training database
 echo ""
 echo "Running training database migrations..."
-# Pass the password explicitly (loaded from .env earlier)
-docker compose exec -T collector sh -c "TRAINING_DATABASE_URL=\"postgresql+asyncpg://kirby:${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training\" alembic upgrade head"
+# Override DATABASE_URL with TRAINING_DATABASE_URL for this command
+docker compose exec -T collector sh -c 'DATABASE_URL="$TRAINING_DATABASE_URL" alembic upgrade head'
 echo -e "${GREEN}[✓] Training migrations completed${NC}"
 
 # Sync training configuration
 echo ""
 echo "Syncing training configuration..."
-# Pass the password explicitly (loaded from .env earlier)
-docker compose exec -T collector sh -c "TRAINING_DATABASE_URL=\"postgresql+asyncpg://kirby:${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training\" python -m scripts.sync_training_config"
+# Container already has correct TRAINING_DATABASE_URL from docker-compose.yml
+docker compose exec -T collector python -m scripts.sync_training_config
 echo -e "${GREEN}[✓] Training configuration synced${NC}"
 
 # Verify training database

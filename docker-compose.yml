@@ -38,8 +38,9 @@ services:
       COLLECTOR_RESTART_DELAY: ${COLLECTOR_RESTART_DELAY:-30}
       DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-20}
       TRAINING_DB: ${TRAINING_DB:-kirby_training}
-      TRAINING_DATABASE_URL: ${TRAINING_DATABASE_URL}
+      TRAINING_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kirby}:${POSTGRES_PASSWORD}@timescaledb:5432/${TRAINING_DB:-kirby_training}
       TRAINING_DATABASE_POOL_SIZE: ${TRAINING_DATABASE_POOL_SIZE:-10}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     command: python -m src.collectors.main
     networks:
       - kirby-network
