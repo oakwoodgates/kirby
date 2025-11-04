@@ -30,6 +30,7 @@ Kirby provides four CLI scripts for exporting market data:
 All exports support:
 - ✅ **Both CSV and Parquet formats** (universal vs. ML-optimized)
 - ✅ **Multi-interval exports** (single, multiple, or all intervals)
+- ✅ **Database selection** (production or training database)
 - ✅ **Complete column export** (all data fields included)
 - ✅ **Metadata generation** (JSON files with export parameters)
 - ✅ **Docker compatibility** (run inside container, save to mounted volume)
@@ -220,6 +221,32 @@ For candles and merged exports only:
 --market-type perps       # Market type (default: perps)
 --format csv              # Export format: csv, parquet, or both (default: both)
 --output exports/         # Output directory (default: exports/)
+--database production     # Database source: production or training (default: production)
+```
+
+### Database Selection
+
+Kirby has two databases:
+
+- **Production database (`kirby`)**: Real-time Hyperliquid data
+  - 8 starlistings: BTC, SOL × perps × 4 intervals (1m, 15m, 4h, 1d)
+  - Used by API endpoints
+
+- **Training database (`kirby_training`)**: Multi-exchange historical data
+  - 24 starlistings: BTC, ETH, SOL × perps/spot × 6 intervals
+  - Data from Binance, Bybit, etc. (via VPN backfills)
+  - Used for ML training and backtesting
+
+**Use `--database training` to export multi-exchange training data:**
+
+```bash
+# Export from production database (default)
+docker compose exec collector python -m scripts.export_all \
+  --coin BTC --intervals 1m --days 30
+
+# Export from training database (multi-exchange data)
+docker compose exec collector python -m scripts.export_all \
+  --coin BTC --intervals 1m --days 30 --database training
 ```
 
 ---
@@ -318,6 +345,40 @@ docker compose exec collector python -m scripts.export_all \
 # SOL
 docker compose exec collector python -m scripts.export_all \
   --coin SOL --intervals 1m --days 90 --format parquet
+```
+
+---
+
+### Example 6: Training Database (Multi-Exchange Data)
+
+Export from training database with data from multiple exchanges (Binance, Bybit, etc.):
+
+```bash
+# Export BTC training data (includes Binance historical data)
+docker compose exec collector python -m scripts.export_all \
+  --coin BTC \
+  --intervals 1m \
+  --days 180 \
+  --database training \
+  --format parquet
+
+# Export ETH training data (not available in production database)
+docker compose exec collector python -m scripts.export_all \
+  --coin ETH \
+  --intervals 1m,15m,4h \
+  --days 90 \
+  --database training \
+  --format parquet
+```
+
+**Note:** Training database has more coins and exchanges than production:
+- Production: BTC, SOL from Hyperliquid only
+- Training: BTC, ETH, SOL from Binance, Bybit, and others
+
+**Output:**
+```
+exports/merged_binance_BTC_USDC_perps_1m_20251102_143022.parquet
+exports/merged_binance_BTC_USDC_perps_1m_20251102_143022.json
 ```
 
 ---

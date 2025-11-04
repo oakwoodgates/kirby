@@ -152,6 +152,14 @@ class Settings(BaseSettings):
         return str(self.database_url)
 
     @property
+    def training_database_url_str(self) -> str:
+        """Get training database URL as string."""
+        if self.training_database_url:
+            return str(self.training_database_url)
+        # Fallback to production database if training URL not configured
+        return str(self.database_url)
+
+    @property
     def asyncpg_url_str(self) -> str:
         """Get database URL for asyncpg (without the +asyncpg driver suffix)."""
         url_str = str(self.database_url)

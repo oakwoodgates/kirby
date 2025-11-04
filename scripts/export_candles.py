@@ -324,6 +324,14 @@ Examples:
         help="Output directory (default: exports/)",
     )
 
+    # Database selection
+    parser.add_argument(
+        "--database",
+        choices=["production", "training"],
+        default="production",
+        help="Database to export from (default: production)",
+    )
+
     args = parser.parse_args()
 
     # Validate end_time usage
@@ -346,8 +354,15 @@ Examples:
     # Create output directory
     args.output.mkdir(parents=True, exist_ok=True)
 
+    # Select database URL based on argument
+    db_url = (
+        settings.training_database_url_str
+        if args.database == "training"
+        else settings.database_url_str
+    )
+
     # Create database engine and session
-    engine = create_async_engine(settings.database_url_str, echo=False)
+    engine = create_async_engine(db_url, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
@@ -364,6 +379,7 @@ Examples:
         print(f"{'='*60}")
         print(f"Kirby Candle Data Export")
         print(f"{'='*60}")
+        print(f"Database: {args.database}")
         print(f"Coin: {args.coin}")
         print(f"Exchange: {args.exchange}")
         print(f"Quote: {args.quote}")

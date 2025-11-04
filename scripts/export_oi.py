@@ -178,6 +178,7 @@ Examples:
     parser.add_argument("--end-time", help="End time (ISO format or Unix timestamp)")
     parser.add_argument("--format", choices=["csv", "parquet", "both"], default="both")
     parser.add_argument("--output", type=Path, default=Path("exports"))
+    parser.add_argument("--database", choices=["production", "training"], default="production", help="Database to export from (default: production)")
 
     args = parser.parse_args()
 
@@ -192,13 +193,21 @@ Examples:
     export_formats = ["csv", "parquet"] if args.format == "both" else [args.format]
     args.output.mkdir(parents=True, exist_ok=True)
 
-    engine = create_async_engine(settings.database_url_str, echo=False)
+    # Select database URL based on argument
+    db_url = (
+        settings.training_database_url_str
+        if args.database == "training"
+        else settings.database_url_str
+    )
+
+    engine = create_async_engine(db_url, echo=False)
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
         print(f"{'='*60}")
         print(f"Kirby Open Interest Data Export")
         print(f"{'='*60}")
+        print(f"Database: {args.database}")
         print(f"Coin: {args.coin}")
         print(f"Exchange: {args.exchange}")
         print(f"Quote: {args.quote}")
