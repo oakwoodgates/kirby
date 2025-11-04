@@ -35,6 +35,18 @@ else
     echo -e "${GREEN}[✓] .env file already exists${NC}"
 fi
 
+# Load password from .env for training database setup
+echo "Loading database password from .env..."
+if [ -f .env ]; then
+    # Extract POSTGRES_PASSWORD from .env file
+    export $(grep "^POSTGRES_PASSWORD=" .env | xargs)
+    if [ -z "$POSTGRES_PASSWORD" ]; then
+        echo -e "${RED}[✗] POSTGRES_PASSWORD not found in .env file${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}[✓] Database password loaded${NC}"
+fi
+
 # Check if Docker is installed
 if ! command -v docker &> /dev/null; then
     echo -e "${RED}[✗] Docker is not installed${NC}"
@@ -136,16 +148,15 @@ echo -e "${GREEN}[✓] TimescaleDB extension enabled${NC}"
 # Run migrations on training database
 echo ""
 echo "Running training database migrations..."
-# Export TRAINING_DATABASE_URL and run migrations
-# Use double quotes to allow variable expansion
-docker compose exec -T collector sh -c "TRAINING_DATABASE_URL=\"postgresql+asyncpg://kirby:\${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training\" alembic upgrade head"
+# Pass the password explicitly (loaded from .env earlier)
+docker compose exec -T collector sh -c "TRAINING_DATABASE_URL=\"postgresql+asyncpg://kirby:${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training\" alembic upgrade head"
 echo -e "${GREEN}[✓] Training migrations completed${NC}"
 
 # Sync training configuration
 echo ""
 echo "Syncing training configuration..."
-# Use double quotes to allow variable expansion
-docker compose exec -T collector sh -c "TRAINING_DATABASE_URL=\"postgresql+asyncpg://kirby:\${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training\" python -m scripts.sync_training_config"
+# Pass the password explicitly (loaded from .env earlier)
+docker compose exec -T collector sh -c "TRAINING_DATABASE_URL=\"postgresql+asyncpg://kirby:${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training\" python -m scripts.sync_training_config"
 echo -e "${GREEN}[✓] Training configuration synced${NC}"
 
 # Verify training database
