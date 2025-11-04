@@ -96,6 +96,38 @@ for i in {1..30}; do
 done
 echo ""
 
+# Auto-detect and configure TimescaleDB IP for VPN
+echo ""
+echo "Detecting TimescaleDB IP for VPN networking..."
+TIMESCALEDB_IP=$(docker inspect kirby-timescaledb -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 2>/dev/null | head -n1)
+
+if [ -n "$TIMESCALEDB_IP" ]; then
+    echo -e "${GREEN}[✓] TimescaleDB IP detected: $TIMESCALEDB_IP${NC}"
+
+    # Update .env file if it doesn't have TIMESCALEDB_IP set, or update it
+    if grep -q "^TIMESCALEDB_IP=" .env 2>/dev/null; then
+        # Update existing value
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            sed -i '' "s/^TIMESCALEDB_IP=.*/TIMESCALEDB_IP=$TIMESCALEDB_IP/" .env
+        else
+            # Linux
+            sed -i "s/^TIMESCALEDB_IP=.*/TIMESCALEDB_IP=$TIMESCALEDB_IP/" .env
+        fi
+        echo -e "${GREEN}[✓] Updated TIMESCALEDB_IP in .env${NC}"
+    else
+        # Add new line
+        echo "" >> .env
+        echo "# Auto-detected TimescaleDB IP (for VPN networking)" >> .env
+        echo "TIMESCALEDB_IP=$TIMESCALEDB_IP" >> .env
+        echo -e "${GREEN}[✓] Added TIMESCALEDB_IP to .env${NC}"
+    fi
+else
+    echo -e "${YELLOW}[!] Could not detect TimescaleDB IP (container may not be running)${NC}"
+    echo -e "${YELLOW}[!] VPN backfills may not work until IP is configured${NC}"
+fi
+echo ""
+
 # Setup Production Database (kirby)
 echo ""
 echo "========================================"

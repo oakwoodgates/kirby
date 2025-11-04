@@ -117,7 +117,7 @@ services:
       - 1.1.1.1     # Cloudflare DNS (for external domains)
       - 8.8.8.8     # Google DNS (backup)
     extra_hosts:
-      - "timescaledb:172.19.0.2"  # Manual DNS mapping for database access through VPN
+      - "timescaledb:${TIMESCALEDB_IP:-172.19.0.2}"  # Auto-detected by deploy.sh, or set in .env
     restart: unless-stopped
     networks:
       - kirby-network
