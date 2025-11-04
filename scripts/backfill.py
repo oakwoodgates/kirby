@@ -11,6 +11,7 @@ import asyncio
 from datetime import datetime, timedelta
 from typing import Any
 
+import asyncpg
 import ccxt
 import structlog
 
@@ -24,10 +25,44 @@ from src.utils.logging import setup_logging
 class BackfillService:
     """Service for backfilling historical candle data."""
 
-    def __init__(self):
-        """Initialize backfill service."""
+    def __init__(self, database_url: str | None = None):
+        """Initialize backfill service.
+
+        Args:
+            database_url: Optional custom database URL (for training database)
+        """
         self.logger = structlog.get_logger("kirby.scripts.backfill")
         self.exchange_clients: dict[str, ccxt.Exchange] = {}
+        self.database_url = database_url
+        self._custom_pool = None
+
+    async def get_db_pool(self) -> asyncpg.Pool:
+        """Get database connection pool (custom or default).
+
+        Returns:
+            asyncpg.Pool instance
+        """
+        if self.database_url:
+            # Create custom pool if not exists
+            if not self._custom_pool:
+                # Convert SQLAlchemy URL to asyncpg format
+                asyncpg_url = str(self.database_url).replace("postgresql+asyncpg://", "postgresql://")
+                self._custom_pool = await asyncpg.create_pool(
+                    asyncpg_url,
+                    min_size=5,
+                    max_size=10,
+                )
+                self.logger.info("Created custom database pool", url=asyncpg_url)
+            return self._custom_pool
+        else:
+            # Use default production pool
+            return await get_asyncpg_pool()
+
+    async def close(self) -> None:
+        """Close custom database pool if it exists."""
+        if self._custom_pool:
+            await self._custom_pool.close()
+            self.logger.info("Closed custom database pool")
 
     def get_exchange_client(self, exchange_name: str) -> ccxt.Exchange:
         """
@@ -43,18 +78,28 @@ class BackfillService:
             # Map our exchange names to CCXT exchange IDs
             exchange_map = {
                 "hyperliquid": "hyperliquid",
-                # Add more exchanges as needed
+                "binance": "binance",
+                "bybit": "bybit",
+                "okx": "okx",
             }
 
             ccxt_id = exchange_map.get(exchange_name)
             if not ccxt_id:
                 raise ValueError(f"Exchange not supported: {exchange_name}")
 
-            # Create exchange instance
-            exchange_class = getattr(ccxt, ccxt_id)
-            self.exchange_clients[exchange_name] = exchange_class({
+            # Create exchange instance with exchange-specific config
+            config = {
                 "enableRateLimit": True,
-            })
+            }
+
+            # Binance-specific configuration
+            if exchange_name == "binance":
+                config["options"] = {
+                    "defaultType": "future",  # Use futures by default for perps
+                }
+
+            exchange_class = getattr(ccxt, ccxt_id)
+            self.exchange_clients[exchange_name] = exchange_class(config)
 
             self.logger.info(
                 "Created CCXT exchange client",
@@ -102,16 +147,21 @@ class BackfillService:
             exchange = self.get_exchange_client(exchange_name)
 
             # Construct symbol for CCXT (exchange-specific formats)
-            # Hyperliquid uses USDC as the quote currency in CCXT
             ccxt_quote = quote
+
+            # Hyperliquid uses USDC as the quote currency in CCXT
             if exchange_name == "hyperliquid" and quote == "USD":
                 ccxt_quote = "USDC"
 
+            # Construct symbol based on market type
             if market_type == "perps":
-                # Format: BTC/USDC:USDC for Hyperliquid perps
+                # Format: BTC/USDT:USDT for perpetual futures
                 symbol = f"{coin}/{ccxt_quote}:{ccxt_quote}"
+            elif market_type == "spot":
+                # Format: BTC/USDT for spot markets
+                symbol = f"{coin}/{ccxt_quote}"
             else:
-                # Format: BTC/USDC for spot
+                # Fallback: treat as spot
                 symbol = f"{coin}/{ccxt_quote}"
 
             # Calculate timeframe
@@ -179,7 +229,7 @@ class BackfillService:
 
                     # Store batch if we have enough candles
                     if len(candles_batch) >= 100:
-                        pool = await get_asyncpg_pool()
+                        pool = await self.get_db_pool()
                         candle_repo = CandleRepository(pool)
                         stored = await candle_repo.upsert_candles(candles_batch)
                         total_candles += stored
@@ -213,7 +263,7 @@ class BackfillService:
 
             # Store remaining candles
             if candles_batch:
-                pool = await get_asyncpg_pool()
+                pool = await self.get_db_pool()
                 candle_repo = CandleRepository(pool)
                 stored = await candle_repo.upsert_candles(candles_batch)
                 total_candles += stored

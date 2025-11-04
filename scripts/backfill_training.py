@@ -81,9 +81,10 @@ async def main() -> None:
         expire_on_commit=False,
     )
 
+    service = None
     try:
-        # Create backfill service
-        service = BackfillService()
+        # Create backfill service with training database URL
+        service = BackfillService(database_url=str(training_db_url))
 
         # Load training stars from training database
         async with async_session_factory() as session:
@@ -120,6 +121,9 @@ async def main() -> None:
     except Exception as e:
         logger.error("Training backfill failed", error=str(e), exc_info=True)
     finally:
+        # Close custom database pool if it exists
+        if service:
+            await service.close()
         await engine.dispose()
         logger.info("Database connections closed")
 
