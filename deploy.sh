@@ -137,13 +137,15 @@ echo -e "${GREEN}[✓] TimescaleDB extension enabled${NC}"
 echo ""
 echo "Running training database migrations..."
 # Export TRAINING_DATABASE_URL and run migrations
-docker compose exec -T collector sh -c 'TRAINING_DATABASE_URL="postgresql+asyncpg://kirby:${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training" alembic upgrade head'
+# Use double quotes to allow variable expansion
+docker compose exec -T collector sh -c "TRAINING_DATABASE_URL=\"postgresql+asyncpg://kirby:\${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training\" alembic upgrade head"
 echo -e "${GREEN}[✓] Training migrations completed${NC}"
 
 # Sync training configuration
 echo ""
 echo "Syncing training configuration..."
-docker compose exec -T collector sh -c 'TRAINING_DATABASE_URL="postgresql+asyncpg://kirby:${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training" python -m scripts.sync_training_config'
+# Use double quotes to allow variable expansion
+docker compose exec -T collector sh -c "TRAINING_DATABASE_URL=\"postgresql+asyncpg://kirby:\${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training\" python -m scripts.sync_training_config"
 echo -e "${GREEN}[✓] Training configuration synced${NC}"
 
 # Verify training database
