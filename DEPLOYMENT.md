@@ -979,9 +979,93 @@ docker compose logs -f collector
 
 ---
 
-## 8. Security Hardening
+## 8. NordVPN Setup for Training Data Backfills (Optional)
 
-### Step 8.1: Configure Firewall (UFW)
+If you need to backfill training data from geo-restricted exchanges like Binance, you can use the built-in NordVPN integration.
+
+### Step 8.1: Add NordVPN Token to .env
+
+```bash
+# Get your NordVPN token from: https://my.nordaccount.com
+# Navigate to: Services → NordVPN → Access Token → Generate new token
+
+nano .env
+
+# Add these lines:
+NORDVPN_TOKEN=your_actual_token_here
+NORDVPN_COUNTRY=Chile
+NORDVPN_TECHNOLOGY=NordLynx
+```
+
+**Save and exit** (Ctrl+X, Y, Enter)
+
+### Step 8.2: Start VPN (Only When Needed)
+
+The VPN **does NOT auto-start**. You start it manually when backfilling, then stop it to save resources.
+
+```bash
+# Start VPN
+docker compose --profile vpn up -d vpn
+
+# Wait for connection (30 seconds)
+sleep 30
+
+# Verify connection
+docker compose logs vpn | tail -20
+# Look for: "You are connected to Chile"
+
+# Test Binance access
+docker compose exec vpn curl -s https://api.binance.com/api/v3/ping
+# Should return: {}
+```
+
+### Step 8.3: Run Training Backfills
+
+```bash
+# Backfill BTC from Binance (through Chile VPN)
+docker compose run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=30
+
+# Backfill other coins
+docker compose run --rm collector-training python -m scripts.backfill_training --coin=ETH --days=30
+docker compose run --rm collector-training python -m scripts.backfill_training --coin=SOL --days=30
+
+# Or backfill all configured coins
+docker compose run --rm collector-training python -m scripts.backfill_training --days=30
+```
+
+### Step 8.4: Stop VPN When Done
+
+```bash
+# Stop VPN to save resources
+docker compose stop vpn
+```
+
+### Step 8.5: Verify Training Data
+
+```bash
+# Check training database
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "SELECT COUNT(*) FROM candles;"
+
+# Check data by exchange
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "
+SELECT e.name, COUNT(*) as candle_count
+FROM candles c
+JOIN starlistings s ON c.starlisting_id = s.id
+JOIN exchanges e ON s.exchange_id = e.id
+GROUP BY e.name;"
+```
+
+**Important Notes:**
+- VPN only affects `collector-training` service, not production
+- Production data collection (Hyperliquid) continues normally on US IP
+- Stop VPN when not backfilling to save CPU/memory
+- For complete VPN setup guide, see [docs/NORDVPN_SETUP.md](docs/NORDVPN_SETUP.md)
+
+---
+
+## 9. Security Hardening
+
+### Step 9.1: Configure Firewall (UFW)
 
 ```bash
 # Enable UFW

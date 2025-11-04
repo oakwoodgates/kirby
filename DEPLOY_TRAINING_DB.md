@@ -41,22 +41,65 @@ docker compose exec timescaledb psql -U kirby -d kirby_training -c "SELECT COUNT
 docker compose exec collector python -m scripts.verify_deployment
 ```
 
-### 4. Backfill Training Data (Optional)
+### 4. Backfill Training Data with NordVPN (Optional)
 
-Once databases are set up, you can backfill historical data from Binance:
+Once databases are set up, you can backfill historical data from Binance using NordVPN.
+
+#### Step 4.1: Configure NordVPN
 
 ```bash
-# Backfill BTC data for the last 7 days
-docker compose exec collector python -m scripts.backfill_training --coin=BTC --days=7
+# Edit .env and add NordVPN token
+nano .env
 
-# Backfill all configured coins
-docker compose exec collector python -m scripts.backfill_training --days=7
-
-# Backfill specific exchange
-docker compose exec collector python -m scripts.backfill_training --exchange=binance --days=30
+# Add these lines:
+NORDVPN_TOKEN=your_actual_token_here
+NORDVPN_COUNTRY=Chile
+NORDVPN_TECHNOLOGY=NordLynx
 ```
 
-**Note**: Binance may geo-restrict access. If you see 451 errors, you'll need a VPN on your server.
+#### Step 4.2: Start VPN
+
+```bash
+# Start VPN (only starts when explicitly requested)
+docker compose --profile vpn up -d vpn
+
+# Wait for connection
+sleep 30
+
+# Verify connection
+docker compose logs vpn | tail -20
+
+# Test Binance access
+docker compose exec vpn curl -s https://api.binance.com/api/v3/ping
+# Should return: {}
+```
+
+#### Step 4.3: Run Backfills (Through VPN)
+
+```bash
+# Backfill BTC data for the last 30 days
+docker compose run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=30
+
+# Backfill all configured coins
+docker compose run --rm collector-training python -m scripts.backfill_training --days=30
+
+# Backfill specific exchange
+docker compose run --rm collector-training python -m scripts.backfill_training --exchange=binance --days=90
+```
+
+#### Step 4.4: Stop VPN When Done
+
+```bash
+# Stop VPN to save resources
+docker compose stop vpn
+```
+
+**Important Notes:**
+- VPN **does NOT auto-start** - you manually start it when needed
+- Use `docker compose run --rm collector-training` (NOT `docker compose exec collector`)
+- This routes traffic through Chile VPN to access Binance
+- Stop VPN when done to save CPU/memory
+- For complete VPN setup, see [docs/NORDVPN_SETUP.md](docs/NORDVPN_SETUP.md)
 
 ---
 
