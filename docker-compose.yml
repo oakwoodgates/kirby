@@ -127,6 +127,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    profiles:
+      - vpn  # Don't start automatically - only when needed for backfills
 
   # Collector Training Service (routes through VPN for Binance/geo-restricted APIs)
   # Use this service for backfilling training data from exchanges that geo-block
