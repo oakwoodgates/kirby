@@ -94,6 +94,67 @@ services:
     networks:
       - kirby-network
 
+  # NordVPN Service (for accessing geo-restricted APIs like Binance)
+  # This allows the collector-training service to route traffic through VPN
+  vpn:
+    image: ghcr.io/bubuntux/nordvpn
+    container_name: kirby-vpn
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - TOKEN=${NORDVPN_TOKEN}
+      - CONNECT=${NORDVPN_COUNTRY:-United_States}
+      - TECHNOLOGY=${NORDVPN_TECHNOLOGY:-NordLynx}
+      - NETWORK=192.168.0.0/24  # Adjust to match your local network range
+      - KILLSWITCH=on  # Force all traffic through VPN tunnel
+      - FIREWALL=on    # Enable NordVPN firewall
+      - POST_CONNECT=ip link set dev nordlynx mtu 1280  # Fix MTU for TLS handshakes
+    sysctls:
+      - net.ipv6.conf.all.disable_ipv6=1
+    dns:
+      - 127.0.0.11  # Docker's internal DNS server (resolves container names)
+      - 1.1.1.1     # Cloudflare DNS (for external domains)
+      - 8.8.8.8     # Google DNS (backup)
+    extra_hosts:
+      - "timescaledb:172.19.0.2"  # Manual DNS mapping for database access through VPN
+    restart: unless-stopped
+    networks:
+      - kirby-network
+    healthcheck:
+      test: ["CMD-SHELL", "ping -c 1 1.1.1.1 || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Collector Training Service (routes through VPN for Binance/geo-restricted APIs)
+  # Use this service for backfilling training data from exchanges that geo-block
+  # Start with: docker compose run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=7
+  collector-training:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kirby-collector-training
+    depends_on:
+      vpn:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+    network_mode: service:vpn  # Routes all traffic through VPN container
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kirby}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-kirby}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TRAINING_DB: ${TRAINING_DB:-kirby_training}
+      TRAINING_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kirby}:${POSTGRES_PASSWORD}@timescaledb:5432/${TRAINING_DB:-kirby_training}
+      TRAINING_DATABASE_POOL_SIZE: ${TRAINING_DATABASE_POOL_SIZE:-10}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Note: No 'command' specified - this is a utility container for running scripts
+    # Use with: docker compose run --rm collector-training <command>
+    # Note: No 'networks' - when using network_mode: service:vpn, it shares VPN's network namespace
+    profiles:
+      - tools  # Optional profile - won't start automatically with docker compose up
+
 volumes:
   timescaledb_data:
     driver: local
