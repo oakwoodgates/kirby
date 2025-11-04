@@ -476,30 +476,49 @@ docker compose exec collector python -m scripts.sync_config
 git clone https://github.com/YOUR_USERNAME/kirby.git
 cd kirby
 cp .env.example .env
-nano .env  # Set POSTGRES_PASSWORD
+nano .env  # Set POSTGRES_PASSWORD and TRAINING_DATABASE_URL password
 
-# 2. Deploy with one command
+# 2. Deploy with one command (sets up BOTH databases automatically)
 chmod +x deploy.sh
 ./deploy.sh
 ```
 
+**What deploy.sh does:**
+- Creates both production (kirby) and training (kirby_training) databases
+- Runs migrations on both databases
+- Syncs configurations for both databases
+- Production: 8 starlistings (BTC, SOL × perps × 4 intervals)
+- Training: 24 starlistings (BTC, ETH, SOL × perps/spot × 6 intervals)
+- Verifies everything is working correctly
+
 ### Manual Deployment
+
+If you prefer manual control:
 
 ```bash
 # Build and start services
 docker compose build
 docker compose up -d
+sleep 10  # Wait for database
 
-# Run migrations
+# Setup production database
 docker compose exec collector alembic upgrade head
-
-# Sync configuration
 docker compose exec collector python -m scripts.sync_config
+
+# Setup training database
+docker compose exec timescaledb psql -U kirby -c "CREATE DATABASE kirby_training;"
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+docker compose exec collector python -m scripts.migrate_training_db
+docker compose exec collector python -m scripts.sync_training_config
 
 # Restart services
 docker compose restart collector api
 
-# Verify
+# Verify both databases
+docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM starlistings;"  # Expected: 8
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "SELECT COUNT(*) FROM starlistings;"  # Expected: 24
+
+# Check logs
 docker compose ps
 docker compose logs -f collector
 ```
@@ -1183,30 +1202,42 @@ if exchange == "hyperliquid":
 
 ```bash
 # Deployment
-./deploy.sh                                         # One-command deploy
+./deploy.sh                                         # One-command deploy (both databases)
 docker compose up -d                                # Start services
 docker compose restart collector api                # Restart after config changes
 
-# Migrations
-docker compose exec collector alembic upgrade head  # Run migrations
+# Migrations (Production)
+docker compose exec collector alembic upgrade head  # Run migrations on production DB
 docker compose exec collector alembic current       # Check migration status
 
-# Configuration
-docker compose exec collector python -m scripts.sync_config  # Sync YAML to DB
+# Migrations (Training)
+docker compose exec collector python -m scripts.migrate_training_db  # Run migrations on training DB
 
-# Backfill (must run inside Docker container)
-docker compose exec collector python -m scripts.backfill --days=365  # Candles
+# Configuration
+docker compose exec collector python -m scripts.sync_config          # Sync production config
+docker compose exec collector python -m scripts.sync_training_config # Sync training config
+
+# Backfill Production (must run inside Docker container)
+docker compose exec collector python -m scripts.backfill --days=365          # Candles
 docker compose exec collector python -m scripts.backfill_funding --days=365  # Funding
+
+# Backfill Training (for ML/backtesting)
+docker compose exec collector python -m scripts.backfill_training --coin=BTC --days=7  # Training data
 
 # Monitoring
 docker compose logs -f collector                    # Watch collector logs
 curl http://localhost:8000/health                   # Check API health
 docker stats                                        # Resource usage
 
-# Database
-docker compose exec timescaledb psql -U kirby -d kirby  # Connect to DB
+# Database (Production)
+docker compose exec timescaledb psql -U kirby -d kirby  # Connect to production DB
 docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM candles;"
-docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM funding_rates;"
+docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM starlistings;"  # Expected: 8
+
+# Database (Training)
+docker compose exec timescaledb psql -U kirby -d kirby_training  # Connect to training DB
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "SELECT COUNT(*) FROM candles;"
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "SELECT COUNT(*) FROM starlistings;"  # Expected: 24
 
 # Testing
 python scripts/run_tests.py                         # Run all tests

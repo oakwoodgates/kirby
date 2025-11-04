@@ -184,7 +184,113 @@ chmod 755 logs
 
 ## 5. Configure and Start Services
 
-### Step 5.1: Create Environment File
+### Automated Deployment (Recommended)
+
+The easiest way to deploy Kirby is using the automated deployment script. This sets up **both** production and training databases automatically.
+
+#### Step 5.1: Make Deploy Script Executable
+
+```bash
+chmod +x deploy.sh
+```
+
+#### Step 5.2: Run Automated Deployment
+
+```bash
+./deploy.sh
+```
+
+The script will automatically:
+- ✅ Create `.env` file with generated password (if doesn't exist)
+- ✅ Check Docker and Docker Compose are installed
+- ✅ Create necessary directories
+- ✅ Build Docker images
+- ✅ Start all services
+- ✅ Create **production database** (kirby) with 8 starlistings
+- ✅ Create **training database** (kirby_training) with 24 starlistings
+- ✅ Run migrations on both databases
+- ✅ Sync configurations for both databases
+- ✅ Verify everything is working correctly
+
+**Expected Output:**
+```bash
+========================================
+  Kirby Deployment Script
+========================================
+
+[✓] .env file created with generated password
+[!] IMPORTANT: Your database password is: <generated_password>
+[!] Save this password securely!
+
+[✓] Docker is installed
+[✓] Docker Compose is installed
+[✓] Directories created
+[✓] Docker images built
+[✓] Services started
+[✓] Database is ready
+
+========================================
+  Setting up Production Database
+========================================
+[✓] Production migrations completed
+[✓] Production configuration synced
+[✓] Production starlistings: 8
+
+========================================
+  Setting up Training Database
+========================================
+[✓] Training database created
+[✓] TimescaleDB extension enabled
+[✓] Training migrations completed
+[✓] Training configuration synced
+[✓] Training starlistings: 24
+
+========================================
+  Final Verification
+========================================
+Running comprehensive verification...
+[✓] Production database verified (8 starlistings)
+[✓] Training database verified (24 starlistings)
+
+========================================
+  Deployment Complete!
+========================================
+```
+
+#### Step 5.3: Save Your Database Password
+
+If this is a fresh deployment, the script generated a random password. **Save it securely!**
+
+You can find it in the `.env` file:
+```bash
+cat .env | grep POSTGRES_PASSWORD
+```
+
+#### Step 5.4: View Logs
+
+Check that everything is working:
+
+```bash
+docker compose logs -f collector
+```
+
+You should see:
+- ✅ "Connected to Hyperliquid WebSocket"
+- ✅ "Subscribed to candles" (8 times for production trading pairs)
+- ✅ "Collector connected and running"
+
+**Press Ctrl+C to exit logs**
+
+---
+
+### Manual Deployment (Advanced)
+
+If you prefer manual control over each step, follow these instructions instead of using `./deploy.sh`:
+
+<details>
+<summary>Click to expand manual deployment steps</summary>
+
+#### Manual Step 1: Create Environment File
 
 ```bash
 cp .env.example .env
@@ -199,6 +305,9 @@ POSTGRES_PASSWORD=YOUR_SECURE_PASSWORD_HERE
 
 # Update DATABASE_URL with your password
 DATABASE_URL=postgresql+asyncpg://kirby:YOUR_SECURE_PASSWORD_HERE@timescaledb:5432/kirby
+
+# Update TRAINING_DATABASE_URL with your password
+TRAINING_DATABASE_URL=postgresql+asyncpg://kirby:YOUR_SECURE_PASSWORD_HERE@timescaledb:5432/kirby_training
 
 # Set to production
 ENVIRONMENT=production
@@ -218,16 +327,15 @@ openssl rand -base64 32
 
 Save and exit (`Ctrl+X`, then `Y`, then `Enter` in nano).
 
-### Step 5.2: Review Configuration
+#### Manual Step 2: Review Configuration
 
 Check your starlisting configuration:
 ```bash
-cat config/starlistings.yaml
+cat config/starlistings.yaml      # Production config (8 starlistings)
+cat config/training_stars.yaml    # Training config (24 starlistings)
 ```
 
-By default, it collects BTC and SOL data. You can edit this file to add more coins.
-
-### Step 5.3: Build Docker Images
+#### Manual Step 3: Build Docker Images
 
 ```bash
 docker compose build
@@ -235,67 +343,66 @@ docker compose build
 
 This will take a few minutes on first build.
 
-### Step 5.4: Start Services
+#### Manual Step 4: Start Services
 
 ```bash
 docker compose up -d
 ```
 
-### Step 5.5: Check Service Status
+#### Manual Step 5: Wait for Database
 
 ```bash
-docker compose ps
+# Wait 10 seconds for database to be ready
+sleep 10
 ```
 
-All three services should be running:
-- `kirby-timescaledb` (healthy)
-- `kirby-collector` (running, may show errors - this is normal!)
-- `kirby-api` (running, may show errors - this is normal!)
-
-**Note**: You may see errors in the logs about "relation does not exist" - this is expected because we haven't run database migrations yet. Don't worry, we'll fix this in the next step!
-
-### Step 5.6: Run Database Migrations
+#### Manual Step 6: Setup Production Database
 
 ```bash
 # Run migrations
 docker compose exec collector alembic upgrade head
 
-# Or if collector is not running yet:
-docker compose run --rm collector alembic upgrade head
+# Sync configuration
+docker compose exec collector python -m scripts.sync_config
+
+# Verify
+docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM starlistings;"
+# Expected: 8
 ```
 
-### Step 5.7: Sync Configuration
+#### Manual Step 7: Setup Training Database
 
 ```bash
-docker compose exec collector python -m scripts.sync_config
+# Create database
+docker compose exec timescaledb psql -U kirby -c "CREATE DATABASE kirby_training;"
+
+# Enable TimescaleDB extension
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+
+# Run migrations
+docker compose exec collector python -m scripts.migrate_training_db
+
+# Sync configuration
+docker compose exec collector python -m scripts.sync_training_config
+
+# Verify
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "SELECT COUNT(*) FROM starlistings;"
+# Expected: 24
 ```
 
-You should see output confirming starlistings were created (e.g., "Created 8 starlistings").
-
-**Note**: Use `-m scripts.sync_config` (Python module syntax) rather than `scripts/sync_config.py` to ensure proper imports.
-
-### Step 5.8: Restart Services (Important!)
-
-After running migrations and syncing config, restart the services so they can connect properly:
+#### Manual Step 8: Restart Services
 
 ```bash
 docker compose restart collector api
 ```
 
-### Step 5.9: View Logs
-
-Now check that everything is working:
+#### Manual Step 9: View Logs
 
 ```bash
 docker compose logs -f collector
 ```
 
-You should see:
-- ✅ "Connected to Hyperliquid WebSocket"
-- ✅ "Subscribed to candles" (8 times - one for each trading pair)
-- ✅ "Collector connected and running"
-
-**Press Ctrl+C to exit logs**
+</details>
 
 ---
 
@@ -736,96 +843,69 @@ docker image prune -a
 
 ### Step 7.6: Update or Deploy Application
 
-To update Kirby to the latest version OR to deploy from scratch, use the automated deployment script:
+The automated deployment script (`deploy.sh`) works for **both fresh deployments AND updates**. It's idempotent, meaning it's safe to run multiple times.
 
-#### Automated Deployment (Recommended)
+#### Automated Update (Recommended)
 
 ```bash
 cd ~/kirby
 
-# Pull latest changes (if updating)
+# Pull latest changes
 git pull origin main
 
-# Run the automated deployment script
-# This handles BOTH production and training databases automatically
-chmod +x deploy.sh
+# Run automated deployment
 ./deploy.sh
 ```
 
-The `deploy.sh` script will automatically:
-- ✅ Build Docker images
-- ✅ Start services
-- ✅ Create **production database** (kirby)
-- ✅ Create **training database** (kirby_training)
-- ✅ Run migrations on both databases
-- ✅ Sync production configuration (starlistings.yaml)
-- ✅ Sync training configuration (training_stars.yaml)
-- ✅ Verify both databases are set up correctly
+The script will:
+- ✅ Detect existing `.env` file (won't overwrite)
+- ✅ Rebuild Docker images
+- ✅ Start all services
+- ✅ Run migrations on both databases (production + training)
+- ✅ Sync configurations
+- ✅ Verify everything is working
 
-#### Manual Update Steps (Advanced)
-
-If you prefer manual control:
-
+**Expected Output:**
 ```bash
-cd ~/kirby
-
-# Step 1: Pull latest changes
-git pull origin main
-
-# Step 2: Stop running services
-docker compose stop
-
-# Step 3: Rebuild Docker images
-docker compose build --no-cache
-
-# Step 4: Start database only (migrations need it)
-docker compose up -d timescaledb
-
-# Step 5: Wait for database to be ready
-sleep 5
-
-# Step 6: Run migrations on PRODUCTION database
-docker compose run --rm collector alembic upgrade head
-
-# Step 7: Sync production configuration
-docker compose run --rm collector python -m scripts.sync_config
-
-# Step 8: Setup TRAINING database (if not exists)
-docker compose exec timescaledb psql -U kirby -c "CREATE DATABASE kirby_training;" || true
-docker compose exec timescaledb psql -U kirby -d kirby_training -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
-
-# Step 9: Run migrations on TRAINING database
-docker compose run --rm -e TRAINING_DATABASE_URL="postgresql+asyncpg://kirby:\${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training" collector alembic upgrade head
-
-# Step 10: Sync training configuration
-docker compose run --rm collector python -m scripts.sync_training_config
-
-# Step 11: Start all services
-docker compose up -d
-
-# Step 12: Verify services are running
-docker compose ps
-
-# Step 13: Check logs for errors
-docker compose logs -f collector api
+[✓] .env file already exists
+[✓] Docker is installed
+[✓] Docker Compose is installed
+[✓] Docker images built
+[✓] Services started
+[✓] Database is ready
+[✓] Production migrations completed
+[✓] Production starlistings: 8
+[✓] Training database already exists
+[✓] Training migrations completed
+[✓] Training starlistings: 24
+[✓] Deployment Complete!
 ```
 
-#### Verify Deployment
+#### Verify Update
 
 ```bash
-# Check production database
-docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM starlistings;"
-# Expected: 8 starlistings (BTC, SOL × perps × 4 intervals)
-
-# Check training database
-docker compose exec timescaledb psql -U kirby -d kirby_training -c "SELECT COUNT(*) FROM starlistings;"
-# Expected: 24 starlistings (BTC, ETH, SOL × perps/spot × 6 intervals)
+# Check services are running
+docker compose ps
 
 # Check API health
 curl http://localhost:8000/health
+
+# Check production database
+docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM starlistings;"
+# Expected: 8
+
+# Check training database
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "SELECT COUNT(*) FROM starlistings;"
+# Expected: 24
+
+# Check collector logs
+docker compose logs -f collector
 ```
 
-**Quick Update (if no database/config changes)**:
+#### Quick Update (Code Changes Only)
+
+If you only changed application code (no database/config changes):
+
 ```bash
 cd ~/kirby
 git pull origin main
@@ -834,13 +914,68 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
+#### Rollback on Failure
+
+If an update fails:
+
+```bash
+# Rollback to previous commit
+cd ~/kirby
+git log --oneline -5  # Find the commit hash
+git checkout <previous-commit-hash>
+
+# Redeploy
+./deploy.sh
+
+# Or manually rebuild
+docker compose down
+docker compose up -d --build
+```
+
+#### Manual Update (Advanced)
+
+<details>
+<summary>Click to expand manual update steps</summary>
+
+```bash
+cd ~/kirby
+
+# Pull latest changes
+git pull origin main
+
+# Stop services
+docker compose stop
+
+# Rebuild images
+docker compose build --no-cache
+
+# Start database only
+docker compose up -d timescaledb
+sleep 10
+
+# Run migrations on both databases
+docker compose exec collector alembic upgrade head
+docker compose exec collector python -m scripts.migrate_training_db
+
+# Sync configurations
+docker compose exec collector python -m scripts.sync_config
+docker compose exec collector python -m scripts.sync_training_config
+
+# Start all services
+docker compose up -d
+
+# Verify
+docker compose ps
+docker compose logs -f collector
+```
+
+</details>
+
 **Important Notes**:
-- Use `./deploy.sh` for fresh deployments OR after major changes
-- Use `--no-cache` if you suspect stale builds
-- Always run migrations before starting collector/api
+- Use `./deploy.sh` for all updates - it's safe and idempotent
 - Check logs after update to verify services started correctly
-- If update fails, rollback: `git checkout <previous-commit>` and rebuild
-- Both production and training databases are now created automatically
+- If collector or API shows errors, check database migrations ran successfully
+- Training database is now included in all deployments automatically
 
 ---
 

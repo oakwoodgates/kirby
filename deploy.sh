@@ -148,8 +148,7 @@ echo -e "${GREEN}[✓] TimescaleDB extension enabled${NC}"
 # Run migrations on training database
 echo ""
 echo "Running training database migrations..."
-# Override DATABASE_URL with TRAINING_DATABASE_URL for this command
-docker compose exec -T collector sh -c 'DATABASE_URL="$TRAINING_DATABASE_URL" alembic upgrade head'
+docker compose exec -T collector python -m scripts.migrate_training_db
 echo -e "${GREEN}[✓] Training migrations completed${NC}"
 
 # Sync training configuration
@@ -177,6 +176,15 @@ else
     echo -e "${YELLOW}[!] API health check inconclusive${NC}"
     echo "Response: $HEALTH_CHECK"
 fi
+
+# Final verification
+echo ""
+echo "========================================"
+echo "  Final Verification"
+echo "========================================"
+echo ""
+echo "Running comprehensive verification..."
+docker compose exec -T collector python -m scripts.verify_deployment
 
 # Display status
 echo ""
