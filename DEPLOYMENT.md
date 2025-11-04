@@ -983,6 +983,8 @@ docker compose logs -f collector
 
 If you need to backfill training data from geo-restricted exchanges like Binance, you can use the built-in NordVPN integration.
 
+**Note**: The `deploy.sh` script automatically detects and configures the TimescaleDB IP for VPN networking. You don't need to configure this manually.
+
 ### Step 8.1: Add NordVPN Token to .env
 
 ```bash

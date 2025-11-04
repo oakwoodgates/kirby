@@ -45,6 +45,8 @@ docker compose exec collector python -m scripts.verify_deployment
 
 Once databases are set up, you can backfill historical data from Binance using NordVPN.
 
+**Note**: The `deploy.sh` script automatically detects and configures the TimescaleDB IP for VPN networking. You don't need to configure this manually.
+
 #### Step 4.1: Configure NordVPN
 
 ```bash
