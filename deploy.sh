@@ -84,17 +84,73 @@ for i in {1..30}; do
 done
 echo ""
 
-# Run migrations
+# Setup Production Database (kirby)
 echo ""
-echo "Running database migrations..."
-docker compose exec -T collector alembic upgrade head
-echo -e "${GREEN}[✓] Migrations completed${NC}"
+echo "========================================"
+echo "  Setting up Production Database"
+echo "========================================"
+echo ""
 
-# Sync configuration
+# Run migrations on production database
+echo "Running production database migrations..."
+docker compose exec -T collector alembic upgrade head
+echo -e "${GREEN}[✓] Production migrations completed${NC}"
+
+# Sync production configuration
 echo ""
-echo "Syncing configuration..."
+echo "Syncing production configuration..."
 docker compose exec -T collector python -m scripts.sync_config
-echo -e "${GREEN}[✓] Configuration synced${NC}"
+echo -e "${GREEN}[✓] Production configuration synced${NC}"
+
+# Verify production database
+echo ""
+echo "Verifying production database..."
+PROD_COUNT=$(docker compose exec -T timescaledb psql -U kirby -d kirby -t -c "SELECT COUNT(*) FROM starlistings;" | tr -d ' ')
+echo -e "${GREEN}[✓] Production starlistings: $PROD_COUNT${NC}"
+
+# Setup Training Database (kirby_training)
+echo ""
+echo "========================================"
+echo "  Setting up Training Database"
+echo "========================================"
+echo ""
+
+# Check if training database exists
+echo "Checking if training database exists..."
+DB_EXISTS=$(docker compose exec -T timescaledb psql -U kirby -t -c "SELECT 1 FROM pg_database WHERE datname='kirby_training';" | tr -d ' ')
+
+if [ "$DB_EXISTS" = "1" ]; then
+    echo -e "${GREEN}[✓] Training database already exists${NC}"
+else
+    echo "Creating training database..."
+    docker compose exec -T timescaledb psql -U kirby -c "CREATE DATABASE kirby_training;"
+    echo -e "${GREEN}[✓] Training database created${NC}"
+fi
+
+# Enable TimescaleDB extension on training database
+echo ""
+echo "Enabling TimescaleDB extension..."
+docker compose exec -T timescaledb psql -U kirby -d kirby_training -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+echo -e "${GREEN}[✓] TimescaleDB extension enabled${NC}"
+
+# Run migrations on training database
+echo ""
+echo "Running training database migrations..."
+# Export TRAINING_DATABASE_URL and run migrations
+docker compose exec -T collector sh -c 'TRAINING_DATABASE_URL="postgresql+asyncpg://kirby:${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training" alembic upgrade head'
+echo -e "${GREEN}[✓] Training migrations completed${NC}"
+
+# Sync training configuration
+echo ""
+echo "Syncing training configuration..."
+docker compose exec -T collector python -m scripts.sync_training_config
+echo -e "${GREEN}[✓] Training configuration synced${NC}"
+
+# Verify training database
+echo ""
+echo "Verifying training database..."
+TRAINING_COUNT=$(docker compose exec -T timescaledb psql -U kirby -d kirby_training -t -c "SELECT COUNT(*) FROM starlistings;" | tr -d ' ')
+echo -e "${GREEN}[✓] Training starlistings: $TRAINING_COUNT${NC}"
 
 # Check health
 echo ""
@@ -118,17 +174,27 @@ echo ""
 echo "Services Status:"
 docker compose ps
 echo ""
+echo -e "${GREEN}Database Summary:${NC}"
+echo "  Production DB (kirby):  $PROD_COUNT starlistings"
+echo "  Training DB (kirby_training): $TRAINING_COUNT starlistings"
+echo ""
 echo -e "${GREEN}Next Steps:${NC}"
 echo "1. Check collector logs: docker compose logs -f collector"
 echo "2. Check API: curl http://localhost:8000/health"
-echo "3. View starlistings: curl http://localhost:8000/starlistings"
+echo "3. View production starlistings: curl http://localhost:8000/starlistings"
 echo "4. Wait 1-2 minutes for data collection to start"
-echo "5. Check candles: curl http://localhost:8000/candles/hyperliquid/BTC/USD/perps/1m?limit=5"
+echo "5. Check production candles: curl http://localhost:8000/candles/hyperliquid/BTC/USD/perps/1m?limit=5"
 echo ""
 echo -e "${YELLOW}Important:${NC}"
 echo "- API is running on: http://localhost:8000"
-echo "- Collector is running in the background"
-echo "- Database data is persisted in Docker volume"
+echo "- Production collector is running in the background"
+echo "- Both databases are set up and ready"
+echo "- Database data is persisted in Docker volumes"
+echo ""
+echo -e "${GREEN}Training Database:${NC}"
+echo "- To backfill training data from Binance:"
+echo "  docker compose exec collector python -m scripts.backfill_training --coin=BTC --days=7"
+echo "- Requires VPN if Binance geo-restricts your region"
 echo ""
 echo "To view logs: docker compose logs -f"
 echo "To stop: docker compose stop"

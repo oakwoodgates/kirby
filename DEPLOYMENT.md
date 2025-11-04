@@ -734,9 +734,37 @@ docker system df
 docker image prune -a
 ```
 
-### Step 7.6: Update Application
+### Step 7.6: Update or Deploy Application
 
-To update Kirby to the latest version:
+To update Kirby to the latest version OR to deploy from scratch, use the automated deployment script:
+
+#### Automated Deployment (Recommended)
+
+```bash
+cd ~/kirby
+
+# Pull latest changes (if updating)
+git pull origin main
+
+# Run the automated deployment script
+# This handles BOTH production and training databases automatically
+chmod +x deploy.sh
+./deploy.sh
+```
+
+The `deploy.sh` script will automatically:
+- ✅ Build Docker images
+- ✅ Start services
+- ✅ Create **production database** (kirby)
+- ✅ Create **training database** (kirby_training)
+- ✅ Run migrations on both databases
+- ✅ Sync production configuration (starlistings.yaml)
+- ✅ Sync training configuration (training_stars.yaml)
+- ✅ Verify both databases are set up correctly
+
+#### Manual Update Steps (Advanced)
+
+If you prefer manual control:
 
 ```bash
 cd ~/kirby
@@ -747,7 +775,7 @@ git pull origin main
 # Step 2: Stop running services
 docker compose stop
 
-# Step 3: Rebuild Docker images (with clean build)
+# Step 3: Rebuild Docker images
 docker compose build --no-cache
 
 # Step 4: Start database only (migrations need it)
@@ -756,20 +784,45 @@ docker compose up -d timescaledb
 # Step 5: Wait for database to be ready
 sleep 5
 
-# Step 6: Run database migrations
+# Step 6: Run migrations on PRODUCTION database
 docker compose run --rm collector alembic upgrade head
 
-# Step 7: Sync configuration (if starlistings.yaml changed)
+# Step 7: Sync production configuration
 docker compose run --rm collector python -m scripts.sync_config
 
-# Step 8: Start all services
+# Step 8: Setup TRAINING database (if not exists)
+docker compose exec timescaledb psql -U kirby -c "CREATE DATABASE kirby_training;" || true
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+
+# Step 9: Run migrations on TRAINING database
+docker compose run --rm -e TRAINING_DATABASE_URL="postgresql+asyncpg://kirby:\${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training" collector alembic upgrade head
+
+# Step 10: Sync training configuration
+docker compose run --rm collector python -m scripts.sync_training_config
+
+# Step 11: Start all services
 docker compose up -d
 
-# Step 9: Verify services are running
+# Step 12: Verify services are running
 docker compose ps
 
-# Step 10: Check logs for errors
+# Step 13: Check logs for errors
 docker compose logs -f collector api
+```
+
+#### Verify Deployment
+
+```bash
+# Check production database
+docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM starlistings;"
+# Expected: 8 starlistings (BTC, SOL × perps × 4 intervals)
+
+# Check training database
+docker compose exec timescaledb psql -U kirby -d kirby_training -c "SELECT COUNT(*) FROM starlistings;"
+# Expected: 24 starlistings (BTC, ETH, SOL × perps/spot × 6 intervals)
+
+# Check API health
+curl http://localhost:8000/health
 ```
 
 **Quick Update (if no database/config changes)**:
@@ -782,10 +835,12 @@ docker compose logs -f
 ```
 
 **Important Notes**:
+- Use `./deploy.sh` for fresh deployments OR after major changes
 - Use `--no-cache` if you suspect stale builds
 - Always run migrations before starting collector/api
 - Check logs after update to verify services started correctly
 - If update fails, rollback: `git checkout <previous-commit>` and rebuild
+- Both production and training databases are now created automatically
 
 ---
 
