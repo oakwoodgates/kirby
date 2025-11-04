@@ -1025,24 +1025,46 @@ docker compose exec vpn curl -s https://api.binance.com/api/v3/ping
 
 ```bash
 # Backfill BTC from Binance (through Chile VPN)
-docker compose run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=30
+docker compose --profile vpn --profile tools run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=30
 
 # Backfill other coins
-docker compose run --rm collector-training python -m scripts.backfill_training --coin=ETH --days=30
-docker compose run --rm collector-training python -m scripts.backfill_training --coin=SOL --days=30
+docker compose --profile vpn --profile tools run --rm collector-training python -m scripts.backfill_training --coin=ETH --days=30
+docker compose --profile vpn --profile tools run --rm collector-training python -m scripts.backfill_training --coin=SOL --days=30
 
 # Or backfill all configured coins
-docker compose run --rm collector-training python -m scripts.backfill_training --days=30
+docker compose --profile vpn --profile tools run --rm collector-training python -m scripts.backfill_training --days=30
 ```
 
-### Step 8.4: Stop VPN When Done
+**Note**: Both `--profile vpn` and `--profile tools` are required because the VPN and collector-training services use different profiles.
+
+### Step 8.4: Verify IP Routing (Optional)
+
+To confirm that VPN routing is working correctly:
+
+```bash
+# Check production collector's IP (should show your US IP)
+docker compose exec collector curl -s https://ipinfo.io/json | grep -E '"ip"|"country"'
+
+# Check VPN container's IP (should show Chile)
+docker compose exec vpn curl -s https://ipinfo.io/json | grep -E '"ip"|"country"'
+
+# Check collector-training's IP (should show Chile - routes through VPN)
+docker compose --profile vpn --profile tools run --rm collector-training curl -s https://ipinfo.io/json | grep -E '"ip"|"country"'
+```
+
+**Expected Results:**
+- Production collector: US IP
+- VPN container: Chile IP
+- Collector-training: Chile IP (same as VPN)
+
+### Step 8.5: Stop VPN When Done
 
 ```bash
 # Stop VPN to save resources
 docker compose stop vpn
 ```
 
-### Step 8.5: Verify Training Data
+### Step 8.6: Verify Training Data
 
 ```bash
 # Check training database

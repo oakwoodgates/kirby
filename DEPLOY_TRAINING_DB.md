@@ -80,14 +80,16 @@ docker compose exec vpn curl -s https://api.binance.com/api/v3/ping
 
 ```bash
 # Backfill BTC data for the last 30 days
-docker compose run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=30
+docker compose --profile vpn --profile tools run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=30
 
 # Backfill all configured coins
-docker compose run --rm collector-training python -m scripts.backfill_training --days=30
+docker compose --profile vpn --profile tools run --rm collector-training python -m scripts.backfill_training --days=30
 
 # Backfill specific exchange
-docker compose run --rm collector-training python -m scripts.backfill_training --exchange=binance --days=90
+docker compose --profile vpn --profile tools run --rm collector-training python -m scripts.backfill_training --exchange=binance --days=90
 ```
+
+**Note**: Both `--profile vpn` and `--profile tools` are required to enable both the VPN and collector-training services.
 
 #### Step 4.4: Stop VPN When Done
 

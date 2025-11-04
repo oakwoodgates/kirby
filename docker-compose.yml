@@ -132,7 +132,7 @@ services:
 
   # Collector Training Service (routes through VPN for Binance/geo-restricted APIs)
   # Use this service for backfilling training data from exchanges that geo-block
-  # Start with: docker compose run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=7
+  # Start with: docker compose --profile vpn --profile tools run --rm collector-training python -m scripts.backfill_training --coin=BTC --days=7
   collector-training:
     build:
       context: .
