@@ -143,7 +143,7 @@ echo -e "${GREEN}[✓] Training migrations completed${NC}"
 # Sync training configuration
 echo ""
 echo "Syncing training configuration..."
-docker compose exec -T collector python -m scripts.sync_training_config
+docker compose exec -T collector sh -c 'TRAINING_DATABASE_URL="postgresql+asyncpg://kirby:${POSTGRES_PASSWORD}@timescaledb:5432/kirby_training" python -m scripts.sync_training_config'
 echo -e "${GREEN}[✓] Training configuration synced${NC}"
 
 # Verify training database
