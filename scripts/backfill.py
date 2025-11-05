@@ -188,11 +188,6 @@ class BackfillService:
         starlisting_id = starlisting["id"]
         trading_pair = starlisting["trading_pair"]
 
-        # CRITICAL DEBUG: This message proves new code is running
-        print(f"\n{'='*80}")
-        print(f"BACKFILL START - EXCHANGE: '{exchange_name}' (is_binance={exchange_name == 'binance'})")
-        print(f"{'='*80}\n")
-
         self.logger.info(
             "Starting backfill",
             exchange=exchange_name,
@@ -249,9 +244,6 @@ class BackfillService:
                 try:
                     # Fetch OHLCV data - use Binance raw API or CCXT
                     if exchange_name == "binance":
-                        print(f"\n>>> BINANCE BRANCH EXECUTING <<<")
-                        print(f">>> Symbol: {symbol} -> Converting to Binance format...")
-
                         # Use Binance raw API for num_trades field
                         # Convert symbol format: BTC/USDT:USDT → BTCUSDT
                         binance_symbol = symbol.replace("/", "").replace(":", "")
@@ -259,9 +251,6 @@ class BackfillService:
                         if "USDT" in binance_symbol:
                             # Extract base currency: BTCUSDT:USDT → BTCUSDT
                             binance_symbol = binance_symbol.split("USDT")[0] + "USDT"
-
-                        print(f">>> Binance symbol: {binance_symbol}")
-                        print(f">>> Fetching via Binance raw API...")
 
                         self.logger.info(
                             "Using Binance raw API",
@@ -277,20 +266,6 @@ class BackfillService:
                             limit=batch_size,
                         )
                         data_source = "binance_raw"
-
-                        print(f">>> Received {len(ohlcv)} candles from Binance")
-
-                        # Debug: Log first candle to verify format
-                        if ohlcv and len(ohlcv) > 0:
-                            print(f">>> First candle has {len(ohlcv[0])} fields")
-                            print(f">>> num_trades (field 8) = {ohlcv[0][8]}")
-
-                            self.logger.info(
-                                "Binance raw candle sample",
-                                num_fields=len(ohlcv[0]),
-                                num_trades_field=ohlcv[0][8] if len(ohlcv[0]) > 8 else "N/A",
-                                first_candle=ohlcv[0][:9],  # Show first 9 fields
-                            )
                     else:
                         # Use CCXT unified interface for other exchanges
                         ohlcv = exchange.fetch_ohlcv(
@@ -309,19 +284,10 @@ class BackfillService:
                         break
 
                     # Process candles
-                    for i, raw_candle in enumerate(ohlcv):
+                    for raw_candle in ohlcv:
                         try:
                             # Normalize candle with appropriate source
                             candle = normalize_candle_data(raw_candle, source=data_source)
-
-                            # Debug: Log first normalized candle
-                            if i == 0 and data_source == "binance_raw":
-                                self.logger.info(
-                                    "First normalized candle",
-                                    source=data_source,
-                                    num_trades=candle.get("num_trades"),
-                                    has_num_trades=candle.get("num_trades") is not None,
-                                )
 
                             # Validate candle
                             if not validate_candle(candle):
@@ -344,12 +310,6 @@ class BackfillService:
 
                     # Store batch if we have enough candles
                     if len(candles_batch) >= 100:
-                        # DEBUG: Check num_trades in batch before storing
-                        num_trades_values = [c.get("num_trades") for c in candles_batch[:3]]
-                        print(f"\n>>> STORING BATCH: {len(candles_batch)} candles")
-                        print(f">>> First 3 num_trades values: {num_trades_values}")
-                        print(f">>> All have num_trades: {all(c.get('num_trades') is not None for c in candles_batch)}\n")
-
                         pool = await self.get_db_pool()
                         candle_repo = CandleRepository(pool)
                         stored = await candle_repo.upsert_candles(candles_batch)
@@ -384,12 +344,6 @@ class BackfillService:
 
             # Store remaining candles
             if candles_batch:
-                # DEBUG: Check final batch
-                num_trades_values = [c.get("num_trades") for c in candles_batch[:min(3, len(candles_batch))]]
-                print(f"\n>>> STORING FINAL BATCH: {len(candles_batch)} candles")
-                print(f">>> First num_trades values: {num_trades_values}")
-                print(f">>> All have num_trades: {all(c.get('num_trades') is not None for c in candles_batch)}\n")
-
                 pool = await self.get_db_pool()
                 candle_repo = CandleRepository(pool)
                 stored = await candle_repo.upsert_candles(candles_batch)
