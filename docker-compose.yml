@@ -75,7 +75,9 @@ services:
       timeout: 10s
       retries: 3
 
-  # pgAdmin - Database GUI
+  # pgAdmin - Database GUI (optional - only starts when needed)
+  # Start with: docker compose --profile admin up -d pgadmin
+  # Stop with: docker compose stop pgadmin
   pgadmin:
     image: dpage/pgadmin4:latest
     container_name: kirby-pgadmin
@@ -93,6 +95,8 @@ services:
       - pgadmin_data:/var/lib/pgadmin
     networks:
       - kirby-network
+    profiles:
+      - admin  # Don't start automatically - only when needed for database management
 
   # NordVPN Service (for accessing geo-restricted APIs like Binance)
   # This allows the collector-training service to route traffic through VPN

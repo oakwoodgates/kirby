@@ -21,18 +21,25 @@
 
 ### Start pgAdmin (Local)
 
-```bash
-# Start all services including pgAdmin
-docker compose up -d
+pgAdmin is configured as an **optional service** (uses Docker Compose profiles) and won't start automatically with `docker compose up -d`. This saves resources when you don't need it.
 
-# Or just start pgAdmin
-docker compose up -d pgadmin
+```bash
+# Start pgAdmin when you need it (recommended)
+docker compose --profile admin up -d pgadmin
+
+# Stop pgAdmin when done to free resources
+docker compose stop pgadmin
 ```
 
 **Access pgAdmin:**
 - URL: http://localhost:5050
 - Email: `admin@kirby.local` (default, configured in .env)
 - Password: `admin` (default, **change this in production!**)
+
+**Why optional?** pgAdmin uses ~200-300MB RAM and CPU resources. Starting it only when needed keeps your system lighter, especially useful for:
+- Development laptops with limited resources
+- Production servers where database access is infrequent
+- CI/CD environments where it's rarely needed
 
 ---
 

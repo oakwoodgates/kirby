@@ -107,11 +107,21 @@ YAML (starlistings.yaml) → sync_config.py → Database tables
 
 ### Database GUI (pgAdmin)
 
-pgAdmin is included as an optional web-based database administration tool for exploring and querying the database.
+pgAdmin is included as an optional web-based database administration tool for exploring and querying the database. It uses Docker Compose profiles and **won't start automatically** to save resources (~200-300MB RAM).
+
+**Start when needed:**
+```bash
+docker compose --profile admin up -d pgadmin
+```
 
 **Access (Local):**
 - URL: http://localhost:5050
 - Default credentials: See `.env` file (PGADMIN_EMAIL, PGADMIN_PASSWORD)
+
+**Stop to free resources:**
+```bash
+docker compose stop pgadmin
+```
 
 **Access (Digital Ocean - SSH Tunnel):**
 ```bash
