@@ -13,6 +13,10 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
+    g++ \
+    make \
+    pkg-config \
+    libsecp256k1-dev \
     postgresql-client \
     curl \
     && rm -rf /var/lib/apt/lists/*
