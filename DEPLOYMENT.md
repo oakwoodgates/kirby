@@ -854,6 +854,7 @@ cd ~/kirby
 git pull origin main
 
 # Run automated deployment
+chmod +x deploy.sh
 ./deploy.sh
 ```
 
