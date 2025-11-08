@@ -22,6 +22,7 @@ from sqlalchemy.orm import sessionmaker
 
 from src.config.settings import settings
 from src.db.models import Coin, Exchange, MarketType, QuoteCurrency, Starlisting, OpenInterest
+from src.utils.database_helpers import get_starlisting_params
 from src.utils.export import (
     generate_filename,
     generate_metadata,
@@ -167,9 +168,9 @@ Examples:
     )
 
     parser.add_argument("--coin", required=True, help="Coin symbol (e.g., BTC, ETH, SOL)")
-    parser.add_argument("--exchange", default="hyperliquid", help="Exchange name (default: hyperliquid)")
-    parser.add_argument("--quote", default="USD", help="Quote currency (default: USD)")
-    parser.add_argument("--market-type", default="perps", help="Market type (default: perps)")
+    parser.add_argument("--exchange", default=None, help="Exchange name (auto-detected from database if not specified)")
+    parser.add_argument("--quote", default=None, help="Quote currency (auto-detected from database if not specified)")
+    parser.add_argument("--market-type", default=None, help="Market type (auto-detected from database if not specified)")
 
     time_group = parser.add_mutually_exclusive_group(required=True)
     time_group.add_argument("--days", type=int, help="Number of days to look back from now")
@@ -204,6 +205,19 @@ Examples:
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
+        # Resolve starlisting parameters from database
+        try:
+            args.exchange, args.quote, args.market_type = await get_starlisting_params(
+                session=session,
+                coin=args.coin,
+                exchange=args.exchange,
+                quote=args.quote,
+                market_type=args.market_type,
+            )
+        except ValueError as e:
+            print(f"ERROR: {e}")
+            return 1
+
         print(f"{'='*60}")
         print(f"Kirby Open Interest Data Export")
         print(f"{'='*60}")

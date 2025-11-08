@@ -32,6 +32,7 @@ from src.db.models import (
     QuoteCurrency,
     Starlisting,
 )
+from src.utils.database_helpers import get_starlisting_params
 from src.utils.export import (
     export_to_csv,
     export_to_parquet,
@@ -384,18 +385,18 @@ Note: Missing values in funding/OI data are left as NULL (no forward-filling).
     # Optional trading pair parameters
     parser.add_argument(
         "--exchange",
-        default="hyperliquid",
-        help="Exchange name (default: hyperliquid)",
+        default=None,
+        help="Exchange name (auto-detected from database if not specified)",
     )
     parser.add_argument(
         "--quote",
-        default="USD",
-        help="Quote currency (default: USD)",
+        default=None,
+        help="Quote currency (auto-detected from database if not specified)",
     )
     parser.add_argument(
         "--market-type",
-        default="perps",
-        help="Market type (default: perps)",
+        default=None,
+        help="Market type (auto-detected from database if not specified)",
     )
 
     # Time range arguments (mutually exclusive)
@@ -473,6 +474,19 @@ Note: Missing values in funding/OI data are left as NULL (no forward-filling).
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async with async_session() as session:
+        # Resolve starlisting parameters from database
+        try:
+            args.exchange, args.quote, args.market_type = await get_starlisting_params(
+                session=session,
+                coin=args.coin,
+                exchange=args.exchange,
+                quote=args.quote,
+                market_type=args.market_type,
+            )
+        except ValueError as e:
+            print(f"ERROR: {e}")
+            return 1
+
         # Get available intervals
         available_intervals = await get_available_intervals(session)
 
