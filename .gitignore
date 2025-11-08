@@ -227,6 +227,10 @@ logs/
 # Temporary test output
 test_output.txt
 
+# Exported data files (but keep directory structure)
+exports/*
+!exports/.gitkeep
+
 # IDE settings
 .vscode/
 .claude/

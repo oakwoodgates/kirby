@@ -41,6 +41,8 @@ services:
       TRAINING_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kirby}:${POSTGRES_PASSWORD}@timescaledb:5432/${TRAINING_DB:-kirby_training}
       TRAINING_DATABASE_POOL_SIZE: ${TRAINING_DATABASE_POOL_SIZE:-10}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./exports:/app/exports  # Persist exported files to local ./exports directory
     command: python -m src.collectors.main
     networks:
       - kirby-network
@@ -155,6 +157,8 @@ services:
       TRAINING_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-kirby}:${POSTGRES_PASSWORD}@timescaledb:5432/${TRAINING_DB:-kirby_training}
       TRAINING_DATABASE_POOL_SIZE: ${TRAINING_DATABASE_POOL_SIZE:-10}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./exports:/app/exports  # Persist exported files to local ./exports directory
     # Note: No 'command' specified - this is a utility container for running scripts
     # Use with: docker compose run --rm collector-training <command>
     # Note: No 'networks' - when using network_mode: service:vpn, it shares VPN's network namespace
