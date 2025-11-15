@@ -65,18 +65,18 @@ async def get_starlisting_params(
         .join(Exchange, Starlisting.exchange_id == Exchange.id)
         .join(QuoteCurrency, Starlisting.quote_currency_id == QuoteCurrency.id)
         .join(MarketType, Starlisting.market_type_id == MarketType.id)
-        .where(Coin.symbol == coin)
+        .where(Coin.symbol == coin.upper())
         .where(Starlisting.active == True)
         .distinct()
     )
 
     # Apply filters if parameters provided
     if exchange:
-        query = query.where(Exchange.name == exchange)
+        query = query.where(Exchange.name == exchange.lower())
     if quote:
-        query = query.where(QuoteCurrency.symbol == quote)
+        query = query.where(QuoteCurrency.symbol == quote.upper())
     if market_type:
-        query = query.where(MarketType.name == market_type)
+        query = query.where(MarketType.name == market_type.lower())
 
     result = await session.execute(query)
     rows = result.all()
