@@ -213,6 +213,219 @@ All tables use **minute-precision timestamps** aligned to the start of the minut
 
 ---
 
+## Database Architecture: Realtime vs Training
+
+Kirby operates with a **dual-database architecture** to separate operational concerns from ML/research workflows.
+
+### Realtime Database (`kirby`)
+
+**Purpose**: Live operational data for charting and trading applications
+
+**Characteristics**:
+- **Collection Method**: WebSocket streaming from exchanges
+- **Current Exchange**: Hyperliquid (will expand to more exchanges in future)
+- **Current Quote**: USD (Hyperliquid's frontend display currency, but settles in USDC)
+- **Serving**: FastAPI REST endpoints for real-time queries
+- **Configuration**: `config/starlistings.yaml`
+- **Sync Script**: `scripts/sync_config.py`
+- **Current Setup**: 8 starlistings
+  - Coins: BTC, SOL
+  - Market Type: perps
+  - Intervals: 1m, 15m, 4h, 1d
+  - Trading Pair Format: BTC/USD, SOL/USD
+
+**Future Expansion**:
+- More exchanges (Binance, Bybit, OKX, etc.)
+- More coins (ETH, MATIC, etc.)
+- More quote currencies (USDT, USDC, EUR, etc.)
+- More market types (spot, futures)
+
+**Use Cases**:
+- Live price charts
+- Real-time trading bots
+- Market monitoring dashboards
+- Production API serving
+
+**Important Note**: "USD" is NOT a hardcoded default - it's what's currently configured for Hyperliquid. As more exchanges are added, different quote currencies will be used (e.g., USDT for Binance).
+
+### Training Database (`kirby_training`)
+
+**Purpose**: Historical data for machine learning model training and backtesting
+
+**Characteristics**:
+- **Collection Method**: Batch API backfills via REST (not WebSocket)
+- **Current Exchange**: Binance (requires VPN for geo-restrictions)
+- **Current Quote**: USDT (Binance's standard perpetual/spot quote currency)
+- **Serving**: Export to Parquet/CSV files for ML frameworks
+- **Configuration**: `config/training_stars.yaml`
+- **Sync Script**: `scripts/sync_training_config.py`
+- **Current Setup**: 24 training stars
+  - Coins: BTC, ETH, SOL
+  - Market Types: perps, spot
+  - Intervals: 1m, 5m, 15m, 1h, 4h, 1d
+  - Trading Pair Format: BTC/USDT, ETH/USDT, SOL/USDT
+
+**Future Expansion**:
+- More exchanges (Bybit, OKX, Kraken, etc.)
+- More coins
+- More quote currencies
+- More historical depth (multi-year backtests)
+
+**Use Cases**:
+- Machine learning model training (PyTorch, TensorFlow)
+- Trading strategy backtesting
+- Historical market analysis
+- Research and development
+
+**Important Note**: "USDT" is NOT a hardcoded default - it's what's currently configured for Binance. As more exchanges are added, different quote currencies will be used.
+
+### Technical Implementation
+
+#### Shared Schema, Separate Databases
+
+Both databases use **identical table structures**:
+- **Table Name**: `starlistings` (same in both databases)
+- **Why Share Schema**: Enables code reuse - same ORM models, repositories, and query logic
+- **Physical Separation**: Two completely separate PostgreSQL databases on same server
+- **Benefit**: Prevents cross-contamination of live vs historical data
+
+**Database Tables** (identical in both `kirby` and `kirby_training`):
+```
+starlistings      # Core table - unique combinations of exchange/coin/quote/market_type/interval
+exchanges         # Reference table - exchange definitions
+coins             # Reference table - base assets (BTC, ETH, SOL)
+quote_currencies  # Reference table - quote assets (USD, USDT, USDC)
+market_types      # Reference table - market types (perps, spot, futures)
+intervals         # Reference table - time intervals (1m, 15m, 4h, 1d)
+candles           # TimescaleDB hypertable - OHLCV data
+funding_rates     # TimescaleDB hypertable - funding rate data
+open_interest     # TimescaleDB hypertable - open interest data
+```
+
+#### Terminology: Starlistings vs Training Stars
+
+**"Starlisting"**:
+- **Technical term** referring to the database table structure and ORM model
+- Used in code: `class Starlisting`, `starlistings` table, `StarlistingRepository`
+- Represents the data model: unique combination of exchange/coin/quote/market_type/interval
+- Example: "The starlisting for binance/BTC/USDT/perps/1m"
+
+**"Training Star"**:
+- **Purpose-driven term** referring to the ML data collection system
+- Used in config: `training_stars.yaml`, `sync_training_config.py`
+- Emphasizes the purpose: data for training ML models
+- Example: "We have 24 training stars configured for Binance"
+
+**Both are valid** - context determines which to use:
+- Database queries, code, schemas → use "starlisting"
+- ML workflows, training data, configs → use "training star"
+- When unclear, "starlisting" is safer (technical term)
+
+#### Database Switching in Code
+
+All export scripts support `--database` flag to switch between databases:
+
+```bash
+# Realtime database (default)
+python -m scripts.export_candles \
+  --coin BTC \
+  --intervals 1m \
+  --days 7
+
+# Training database (specify explicitly)
+python -m scripts.export_candles \
+  --coin BTC \
+  --intervals 1m \
+  --days 7 \
+  --database training
+```
+
+**How it works**:
+1. Script reads `--database` argument
+2. Selects connection URL based on argument:
+   - `production` (default): Uses `DATABASE_URL` → `kirby` database
+   - `training`: Uses `TRAINING_DATABASE_URL` → `kirby_training` database
+3. Creates database session with selected URL
+4. All queries go to selected database
+
+**Implementation** (in `src/config/settings.py`):
+```python
+@property
+def training_database_url_str(self) -> str:
+    """Get training database URL as string."""
+    if self.training_database_url:
+        return str(self.training_database_url)
+    # Fallback to production database if training URL not configured
+    # (allows dev/test with single database)
+    return str(self.database_url)
+```
+
+#### Environment Configuration
+
+**`.env` file** must define both database URLs:
+
+```bash
+# Realtime database (required)
+DATABASE_URL=postgresql+asyncpg://kirby:password@timescaledb:5432/kirby
+
+# Training database (optional - uses realtime DB if not set)
+TRAINING_DATABASE_URL=postgresql+asyncpg://kirby:password@timescaledb:5432/kirby_training
+```
+
+**Important**: If `TRAINING_DATABASE_URL` is not set, training database queries will fall back to realtime database. This is intentional for dev/test environments with only one database.
+
+#### Deployment
+
+The `deploy.sh` script automatically sets up **BOTH** databases:
+
+```bash
+./deploy.sh
+```
+
+**What it does**:
+1. Creates `kirby` database (realtime)
+2. Creates `kirby_training` database (training)
+3. Runs migrations on both databases
+4. Syncs `starlistings.yaml` → `kirby`
+5. Syncs `training_stars.yaml` → `kirby_training`
+6. Verifies both databases have correct starlisting counts
+
+**Result**:
+- `kirby`: 8 starlistings (Hyperliquid)
+- `kirby_training`: 24 training stars (Binance)
+
+This works identically on **local Docker** and **Digital Ocean** deployments.
+
+### Summary Table
+
+| Aspect | Realtime Database | Training Database |
+|--------|------------------|-------------------|
+| **Database Name** | `kirby` | `kirby_training` |
+| **Purpose** | Live operational data | ML training data |
+| **Collection** | WebSocket (streaming) | REST API (batch backfills) |
+| **Current Exchange** | Hyperliquid | Binance |
+| **Current Quote** | USD | USDT |
+| **VPN Required** | No | Yes (Binance geo-restrictions) |
+| **API Serving** | Yes (FastAPI endpoints) | No (export to files) |
+| **Output Format** | Database queries | Parquet/CSV files |
+| **Config File** | `starlistings.yaml` | `training_stars.yaml` |
+| **Sync Script** | `sync_config.py` | `sync_training_config.py` |
+| **Current Count** | 8 starlistings | 24 training stars |
+| **Use Case** | Live charting, trading | ML training, backtesting |
+| **Future** | Will expand exchanges/coins/quotes | Will expand exchanges/coins/quotes |
+
+### Key Takeaways for Claude/Agents
+
+1. **Two separate databases** with identical schemas, different purposes
+2. **"Starlisting" = technical term**, "training star" = purpose term (both valid)
+3. **USD vs USDT** are current configs, NOT hardcoded defaults
+4. **Use `--database training`** flag when working with training data
+5. **Both databases will expand** - current setup is just what's configured now
+6. **Hyperliquid uses USD** (frontend) but settles in USDC (backend quirk)
+7. **Binance uses USDT** for perpetuals and spot markets
+
+---
+
 ## Project Structure
 
 ```
@@ -396,6 +609,23 @@ DO UPDATE SET
 - Flexibility to add quote currencies without touching coins
 - Clear data model: base asset (coin) + quote asset = trading pair
 - Matches exchange API structure
+
+### 9. Dual-Database Architecture
+**Decision**: Separate realtime (`kirby`) and training (`kirby_training`) databases
+**Rationale**:
+- Clear separation of operational vs ML/research workflows
+- Prevents accidental cross-contamination of live vs historical data
+- Different data sources (WebSocket vs REST API)
+- Different serving methods (API endpoints vs file exports)
+- Allows independent scaling and optimization
+- Same schema enables code reuse while maintaining isolation
+
+**Implementation**:
+- Physical database separation (two PostgreSQL databases)
+- Shared ORM models and repositories
+- `--database` flag in all export scripts for switching
+- Environment variables control connection URLs
+- `deploy.sh` sets up both databases automatically
 
 ---
 

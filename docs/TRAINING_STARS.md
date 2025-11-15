@@ -69,8 +69,10 @@ The training database (`kirby_training`) has the same schema as production but s
 - `quote_currencies` - USDT, BUSD, etc.
 - `market_types` - perps, spot
 - `intervals` - 1m, 5m, 15m, 1h, 4h, 1d
-- `training_stars` - Combinations to collect (like starlistings)
+- `starlistings` - Combinations to collect (same schema as realtime database)
 - `candles` - Historical OHLCV data (TimescaleDB hypertable)
+
+**Terminology Note**: Training stars are stored in the `starlistings` table within the `kirby_training` database. The term "training star" refers to the **purpose** (ML/backtesting data), while "starlisting" refers to the **database structure** (shared schema with realtime database). Both the realtime database (`kirby`) and training database (`kirby_training`) use the same `starlistings` table schema, but they're physically separate databases.
 
 ### Data Collection Flow
 
@@ -295,17 +297,17 @@ docker compose exec collector python -m scripts.backfill_training --exchange=bin
 # 4. Verify data
 docker compose exec timescaledb psql -U kirby -d kirby_training -c "
 SELECT
-    interval_name,
+    i.name as interval,
     COUNT(*) as candles,
-    MIN(time) as oldest,
-    MAX(time) as newest
+    MIN(c.time) as oldest,
+    MAX(c.time) as newest
 FROM candles c
-JOIN training_stars ts ON c.training_star_id = ts.id
-JOIN intervals i ON ts.interval_id = i.id
-JOIN coins co ON ts.coin_id = co.id
+JOIN starlistings s ON c.starlisting_id = s.id
+JOIN intervals i ON s.interval_id = i.id
+JOIN coins co ON s.coin_id = co.id
 WHERE co.symbol = 'BTC'
-GROUP BY interval_name
-ORDER BY interval_name;
+GROUP BY i.name
+ORDER BY i.name;
 "
 ```
 
