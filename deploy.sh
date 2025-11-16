@@ -66,8 +66,13 @@ echo -e "${GREEN}[✓] Docker Compose is installed${NC}"
 # Create necessary directories
 echo ""
 echo "Creating directories..."
-mkdir -p logs backups
-echo -e "${GREEN}[✓] Directories created${NC}"
+mkdir -p logs backups exports
+echo -e "${GREEN}[✓] Directories created (logs, backups, exports)${NC}"
+
+# Ensure exports directory has proper permissions for Docker
+echo "Setting exports directory permissions..."
+chmod 755 exports
+echo -e "${GREEN}[✓] Exports directory permissions set${NC}"
 
 # Build Docker images
 echo ""
