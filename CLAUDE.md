@@ -484,7 +484,8 @@ kirby/
 │   ├── env.py                 # Async migration environment
 │   └── versions/              # Migration files
 │       ├── 20251026_0001_initial_schema.py  # Initial schema
-│       └── 20251102_*_add_funding_oi.py     # Funding/OI tables
+│       ├── 20251102_*_add_funding_oi.py     # Funding/OI tables
+│       └── 20251116_0150_increase_numeric_precision.py  # 18-decimal precision
 ├── docs/                       # Documentation
 │   ├── HYPERLIQUID_API_REFERENCE.md  # Hyperliquid API details
 │   └── EXPORT.md              # Data export guide (ML/backtesting)
@@ -626,6 +627,27 @@ DO UPDATE SET
 - `--database` flag in all export scripts for switching
 - Environment variables control connection URLs
 - `deploy.sh` sets up both databases automatically
+
+### 10. 18-Decimal Precision for All Numeric Columns
+**Decision**: Use Numeric(30,18) for prices, Numeric(40,18) for volumes, Numeric(20,18) for rates
+**Rationale**:
+- **No Assumptions About Price**: Supports coins ranging from $0.000000000000000001 (meme coins) to $999,999,999,999 (large value assets)
+- **Data Fidelity**: Store data as close to source as possible without rounding
+- **Future-Proof**: Handles any coin type without schema changes
+- **Storage Trade-off**: Slightly larger storage is worth perfect precision
+
+**Before (Inadequate)**:
+- Candle prices: Numeric(20, 8) - only 8 decimals
+- Funding prices: Numeric(20, 4) - **ONLY 4 DECIMALS** (critical issue!)
+- Example loss: $0.000000123456 → $0.00000012 (rounding at 8th decimal)
+
+**After (Comprehensive)**:
+- All prices: Numeric(30, 18) - 18 decimals
+- All volumes: Numeric(40, 18) - 18 decimals
+- All rates: Numeric(20, 18) - 18 decimals
+- Example preserved: $0.000000123456789012 → stored exactly
+
+**Migration**: [migrations/versions/20251116_0150_increase_numeric_precision.py](migrations/versions/20251116_0150_increase_numeric_precision.py)
 
 ---
 

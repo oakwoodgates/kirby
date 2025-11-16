@@ -198,12 +198,12 @@ class Candle(Base):
         nullable=False,
     )
 
-    # OHLCV data
-    open: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
-    high: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
-    low: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
-    close: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
-    volume: Mapped[Decimal] = mapped_column(Numeric(30, 8), nullable=False)
+    # OHLCV data - 18 decimal precision for all price types (supports meme coins)
+    open: Mapped[Decimal] = mapped_column(Numeric(30, 18), nullable=False)
+    high: Mapped[Decimal] = mapped_column(Numeric(30, 18), nullable=False)
+    low: Mapped[Decimal] = mapped_column(Numeric(30, 18), nullable=False)
+    close: Mapped[Decimal] = mapped_column(Numeric(30, 18), nullable=False)
+    volume: Mapped[Decimal] = mapped_column(Numeric(40, 18), nullable=False)
 
     # Additional metadata
     num_trades: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -252,15 +252,15 @@ class FundingRate(Base):
         nullable=False,
     )
 
-    # Core funding data
-    funding_rate: Mapped[Decimal] = mapped_column(Numeric(20, 10), nullable=False)
-    premium: Mapped[Decimal | None] = mapped_column(Numeric(20, 10), nullable=True)
+    # Core funding data - 18 decimal precision for all rates and prices
+    funding_rate: Mapped[Decimal] = mapped_column(Numeric(20, 18), nullable=False)
+    premium: Mapped[Decimal | None] = mapped_column(Numeric(20, 18), nullable=True)
 
-    # Price context
-    mark_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
-    index_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
-    oracle_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
-    mid_price: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    # Price context - increased from 4 decimals to 18 for small-priced coins
+    mark_price: Mapped[Decimal | None] = mapped_column(Numeric(30, 18), nullable=True)
+    index_price: Mapped[Decimal | None] = mapped_column(Numeric(30, 18), nullable=True)
+    oracle_price: Mapped[Decimal | None] = mapped_column(Numeric(30, 18), nullable=True)
+    mid_price: Mapped[Decimal | None] = mapped_column(Numeric(30, 18), nullable=True)
 
     # Timing
     next_funding_time: Mapped[datetime | None] = mapped_column(nullable=True)
@@ -301,13 +301,13 @@ class OpenInterest(Base):
         nullable=False,
     )
 
-    # Open interest data
-    open_interest: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
-    notional_value: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    # Open interest data - 18 decimal precision for large volumes
+    open_interest: Mapped[Decimal] = mapped_column(Numeric(40, 18), nullable=False)
+    notional_value: Mapped[Decimal | None] = mapped_column(Numeric(40, 18), nullable=True)
 
-    # Volume context
-    day_base_volume: Mapped[Decimal | None] = mapped_column(Numeric(20, 8), nullable=True)
-    day_notional_volume: Mapped[Decimal | None] = mapped_column(Numeric(20, 4), nullable=True)
+    # Volume context - increased precision for all volume fields
+    day_base_volume: Mapped[Decimal | None] = mapped_column(Numeric(40, 18), nullable=True)
+    day_notional_volume: Mapped[Decimal | None] = mapped_column(Numeric(40, 18), nullable=True)
 
     # Metadata
     created_at: Mapped[datetime] = mapped_column(
