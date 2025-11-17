@@ -1656,6 +1656,7 @@ python scripts/run_tests.py                         # Run all tests
 - **[DEPLOYMENT.md](DEPLOYMENT.md)**: Production deployment guide
 - **[QUICKSTART.md](QUICKSTART.md)**: 5-minute quick start
 - **[TESTING.md](TESTING.md)**: Testing guide
+- **[ROADMAP.md](ROADMAP.md)**: Future features and priorities
 - **[docker-compose.yml](docker-compose.yml)**: Service definitions
 - **[config/starlistings.yaml](config/starlistings.yaml)**: Starlisting config
 - **[.env.example](.env.example)**: Environment variable template
@@ -1742,7 +1743,7 @@ This project was built collaboratively with senior engineering oversight and AI 
 **Last Updated**: November 17, 2025
 **Version**: 1.2.0 - Production with WebSocket API
 **Status**: ✅ Deployed with real-time data collection and WebSocket streaming
-**Next Steps**: Add funding/OI streaming to WebSocket API, add funding/OI REST endpoints, expand to more exchanges
+**Next Steps**: See [ROADMAP.md](ROADMAP.md) for prioritized features and enhancements
 
 ---
 
