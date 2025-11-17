@@ -196,6 +196,39 @@ class KirbyWebSocketClient:
                     if candle_data.get("num_trades"):
                         print(f"   Trades: {candle_data.get('num_trades')}")
 
+                elif msg_type == "funding":
+                    funding_data = data.get("data", {})
+                    print(f"\n💰 NEW FUNDING RATE UPDATE:")
+                    print(f"   Starlisting ID: {data.get('starlisting_id')}")
+                    print(
+                        f"   Trading Pair: {data.get('trading_pair')} ({data.get('exchange')})"
+                    )
+                    print(f"   Market Type: {data.get('market_type')}")
+                    print(f"   Time: {funding_data.get('time')}")
+                    print(f"   Funding Rate: {funding_data.get('funding_rate')}")
+                    print(f"   Premium: {funding_data.get('premium')}")
+                    if funding_data.get("mark_price"):
+                        print(f"   Mark Price: {funding_data.get('mark_price')}")
+                    if funding_data.get("index_price"):
+                        print(f"   Index Price: {funding_data.get('index_price')}")
+                    if funding_data.get("next_funding_time"):
+                        print(f"   Next Funding: {funding_data.get('next_funding_time')}")
+
+                elif msg_type == "open_interest":
+                    oi_data = data.get("data", {})
+                    print(f"\n📈 NEW OPEN INTEREST UPDATE:")
+                    print(f"   Starlisting ID: {data.get('starlisting_id')}")
+                    print(
+                        f"   Trading Pair: {data.get('trading_pair')} ({data.get('exchange')})"
+                    )
+                    print(f"   Market Type: {data.get('market_type')}")
+                    print(f"   Time: {oi_data.get('time')}")
+                    print(f"   Open Interest: {oi_data.get('open_interest')}")
+                    if oi_data.get("notional_value"):
+                        print(f"   Notional Value: {oi_data.get('notional_value')}")
+                    if oi_data.get("day_base_volume"):
+                        print(f"   Day Volume: {oi_data.get('day_base_volume')}")
+
                 else:
                     print(f"\n📨 Unknown message type: {msg_type}")
                     print(f"   Data: {json.dumps(data, indent=2)}")
