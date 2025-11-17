@@ -9,7 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import structlog
 
-from src.api.routers import candles, funding, health, starlistings
+from src.api.postgres_listener import PostgresNotificationListener
+from src.api.routers import candles, funding, health, starlistings, websocket
+from src.api.websocket_manager import ConnectionManager
 from src.config.settings import settings
 from src.db.connection import close_db, init_db
 from src.utils.logging import setup_logging
@@ -32,10 +34,32 @@ async def lifespan(app: FastAPI):
     await init_db()
     logger.info("Database connections initialized")
 
+    # Initialize WebSocket components
+    connection_manager = ConnectionManager(
+        max_connections=settings.websocket_max_connections,
+        heartbeat_interval=settings.websocket_heartbeat_interval,
+    )
+    websocket.set_connection_manager(connection_manager)
+    logger.info(
+        "WebSocket connection manager initialized",
+        max_connections=settings.websocket_max_connections,
+    )
+
+    # Initialize and start PostgreSQL notification listener
+    postgres_listener = PostgresNotificationListener(connection_manager)
+    await postgres_listener.start()
+    logger.info("PostgreSQL notification listener started")
+
     yield
 
     # Shutdown
     logger.info("Shutting down Kirby API")
+
+    # Stop PostgreSQL listener
+    await postgres_listener.stop()
+    logger.info("PostgreSQL notification listener stopped")
+
+    # Close database connections
     await close_db()
     logger.info("Database connections closed")
 
@@ -99,6 +123,7 @@ app.include_router(candles.router)
 app.include_router(funding.router)
 app.include_router(starlistings.router)
 app.include_router(health.router)
+app.include_router(websocket.router)
 
 
 # Root endpoint

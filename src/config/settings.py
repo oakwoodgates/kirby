@@ -146,6 +146,26 @@ class Settings(BaseSettings):
         description="Cache TTL (seconds)",
     )
 
+    # WebSocket Settings
+    websocket_max_connections: int = Field(
+        default=100,
+        ge=1,
+        le=1000,
+        description="Maximum concurrent WebSocket connections",
+    )
+    websocket_heartbeat_interval: int = Field(
+        default=30,
+        ge=10,
+        le=300,
+        description="WebSocket heartbeat/ping interval (seconds)",
+    )
+    websocket_message_size_limit: int = Field(
+        default=1048576,  # 1MB
+        ge=1024,
+        le=10485760,  # 10MB
+        description="Maximum WebSocket message size (bytes)",
+    )
+
     @property
     def database_url_str(self) -> str:
         """Get database URL as string."""
