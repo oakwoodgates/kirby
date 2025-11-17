@@ -62,6 +62,7 @@ def upgrade() -> None:
     op.create_index(op.f("ix_api_keys_user_id"), "api_keys", ["user_id"], unique=False)
 
     # Create api_key_usage table for logging
+    # Note: For TimescaleDB hypertables, primary key must include the partitioning column
     op.create_table(
         "api_key_usage",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -74,10 +75,11 @@ def upgrade() -> None:
         sa.Column("user_agent", sa.String(length=500), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
         sa.ForeignKeyConstraint(["api_key_id"], ["api_keys.id"], name=op.f("fk_api_key_usage_api_key_id_api_keys"), ondelete="CASCADE"),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_api_key_usage")),
+        # Composite primary key includes partitioning column (required for TimescaleDB)
+        sa.PrimaryKeyConstraint("created_at", "id", name=op.f("pk_api_key_usage")),
     )
     op.create_index(op.f("ix_api_key_usage_api_key_id"), "api_key_usage", ["api_key_id"], unique=False)
-    op.create_index(op.f("ix_api_key_usage_created_at"), "api_key_usage", ["created_at"], unique=False)
+    op.create_index(op.f("ix_api_key_usage_id"), "api_key_usage", ["id"], unique=False)
 
     # Create a TimescaleDB hypertable for api_key_usage (for efficient time-series queries)
     op.execute("SELECT create_hypertable('api_key_usage', 'created_at', if_not_exists => TRUE);")

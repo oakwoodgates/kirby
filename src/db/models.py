@@ -380,11 +380,20 @@ class APIKey(Base, TimestampMixin):
 
 
 class APIKeyUsage(Base):
-    """APIKeyUsage model - logs API key usage for monitoring and rate limiting."""
+    """APIKeyUsage model - logs API key usage for monitoring and rate limiting.
+
+    Note: This is a TimescaleDB hypertable partitioned by created_at.
+    The composite primary key (created_at, id) is required for TimescaleDB.
+    """
 
     __tablename__ = "api_key_usage"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Composite primary key for TimescaleDB hypertable
+    created_at: Mapped[datetime] = mapped_column(
+        primary_key=True, nullable=False, server_default="now()"
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, nullable=False)
+
     api_key_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("api_keys.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -394,15 +403,12 @@ class APIKeyUsage(Base):
     response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        nullable=False, server_default="now()", index=True
-    )
 
     # Relationship
     api_key: Mapped["APIKey"] = relationship("APIKey", back_populates="usage_logs")
 
     __table_args__ = (
-        Index("ix_api_key_usage_api_key_id_created_at", "api_key_id", "created_at"),
+        Index("ix_api_key_usage_id", "id"),  # Index on id for lookups
     )
 
     def __repr__(self) -> str:
