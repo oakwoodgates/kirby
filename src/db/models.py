@@ -327,3 +327,86 @@ class OpenInterest(Base):
             f"<OpenInterest(time={self.time}, starlisting_id={self.starlisting_id}, "
             f"open_interest={self.open_interest}, notional_value={self.notional_value})>"
         )
+
+
+class User(Base, TimestampMixin):
+    """User model - represents API users for authentication."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    username: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Relationships
+    api_keys: Mapped[List["APIKey"]] = relationship(
+        "APIKey", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return f"<User(id={self.id}, email={self.email}, username={self.username})>"
+
+
+class APIKey(Base, TimestampMixin):
+    """APIKey model - represents API keys for authentication."""
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    key_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    key_prefix: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    rate_limit: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    # Relationships
+    user: Mapped["User"] = relationship("User", back_populates="api_keys")
+    usage_logs: Mapped[List["APIKeyUsage"]] = relationship(
+        "APIKeyUsage", back_populates="api_key", cascade="all, delete-orphan"
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<APIKey(id={self.id}, user_id={self.user_id}, "
+            f"key_prefix={self.key_prefix}, is_active={self.is_active})>"
+        )
+
+
+class APIKeyUsage(Base):
+    """APIKeyUsage model - logs API key usage for monitoring and rate limiting."""
+
+    __tablename__ = "api_key_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    api_key_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("api_keys.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    endpoint: Mapped[str] = mapped_column(String(255), nullable=False)
+    method: Mapped[str] = mapped_column(String(10), nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    response_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False, server_default="now()", index=True
+    )
+
+    # Relationship
+    api_key: Mapped["APIKey"] = relationship("APIKey", back_populates="usage_logs")
+
+    __table_args__ = (
+        Index("ix_api_key_usage_api_key_id_created_at", "api_key_id", "created_at"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<APIKeyUsage(id={self.id}, api_key_id={self.api_key_id}, "
+            f"endpoint={self.endpoint}, status_code={self.status_code})>"
+        )
