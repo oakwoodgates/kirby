@@ -1,7 +1,7 @@
 """Add authentication tables for users and API keys.
 
 Revision ID: auth_001
-Revises: 20251102_0004_add_funding_oi_tables
+Revises: funding_oi_notify_001
 Create Date: 2025-11-17 21:00:00.000000
 
 """
@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = "auth_001"
-down_revision: Union[str, None] = "20251102_0004_add_funding_oi_tables"
+down_revision: Union[str, None] = "funding_oi_notify_001"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
