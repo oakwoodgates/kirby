@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kirby WebSocket Client</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .controls {
+            padding: 30px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        .control-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #495057;
+        }
+
+        .control-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+
+        .control-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .btn-connect {
+            background: #28a745;
+            color: white;
+        }
+
+        .btn-disconnect {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-subscribe {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-unsubscribe {
+            background: #ffc107;
+            color: #212529;
+        }
+
+        .btn-ping {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .btn-clear {
+            background: #6c757d;
+            color: white;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .status {
+            padding: 15px 30px;
+            background: #e9ecef;
+            border-bottom: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.connected {
+            background: #28a745;
+        }
+
+        .status-dot.disconnected {
+            background: #dc3545;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .messages {
+            padding: 30px;
+            height: 600px;
+            overflow-y: auto;
+            background: #fff;
+        }
+
+        .message {
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+            background: #f8f9fa;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .message-success {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+
+        .message-error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+
+        .message-candle {
+            border-left-color: #667eea;
+            background: #e7f3ff;
+        }
+
+        .message-historical {
+            border-left-color: #ffc107;
+            background: #fff3cd;
+        }
+
+        .message-ping {
+            border-left-color: #17a2b8;
+            background: #d1ecf1;
+        }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .message-type {
+            text-transform: uppercase;
+            font-size: 12px;
+            letter-spacing: 1px;
+        }
+
+        .message-time {
+            font-size: 12px;
+            opacity: 0.7;
+        }
+
+        .message-content {
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .candle-data {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .candle-field {
+            background: white;
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        .candle-field-label {
+            font-size: 11px;
+            opacity: 0.7;
+            margin-bottom: 4px;
+        }
+
+        .candle-field-value {
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🕯️ Kirby WebSocket Client</h1>
+            <p>Real-time cryptocurrency candle data streaming</p>
+        </div>
+
+        <div class="controls">
+            <div class="control-group">
+                <label for="websocket-url">WebSocket URL</label>
+                <input type="text" id="websocket-url" value="ws://localhost:8000/ws" placeholder="ws://localhost:8000/ws">
+            </div>
+
+            <div class="control-group">
+                <label for="starlisting-ids">Starlisting IDs (comma-separated)</label>
+                <input type="text" id="starlisting-ids" value="1,2" placeholder="1,2,3">
+            </div>
+
+            <div class="control-group">
+                <label for="history">Historical Candles (0-1000)</label>
+                <input type="number" id="history" value="10" min="0" max="1000" placeholder="10">
+            </div>
+
+            <div class="button-group">
+                <button class="btn-connect" onclick="connect()">Connect</button>
+                <button class="btn-disconnect" onclick="disconnect()" disabled>Disconnect</button>
+                <button class="btn-subscribe" onclick="subscribe()" disabled>Subscribe</button>
+                <button class="btn-unsubscribe" onclick="unsubscribe()" disabled>Unsubscribe</button>
+                <button class="btn-ping" onclick="ping()" disabled>Ping</button>
+                <button class="btn-clear" onclick="clearMessages()">Clear Messages</button>
+            </div>
+        </div>
+
+        <div class="status">
+            <div class="status-indicator">
+                <div class="status-dot disconnected" id="status-dot"></div>
+                <span id="status-text">Disconnected</span>
+            </div>
+            <div id="message-count">Messages: 0</div>
+        </div>
+
+        <div class="messages" id="messages">
+            <p style="text-align: center; color: #6c757d; margin-top: 50px;">
+                Click "Connect" to start receiving real-time candle updates
+            </p>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let messageCount = 0;
+
+        function updateButtons(connected) {
+            document.querySelector('.btn-connect').disabled = connected;
+            document.querySelector('.btn-disconnect').disabled = !connected;
+            document.querySelector('.btn-subscribe').disabled = !connected;
+            document.querySelector('.btn-unsubscribe').disabled = !connected;
+            document.querySelector('.btn-ping').disabled = !connected;
+        }
+
+        function updateStatus(connected) {
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+
+            if (connected) {
+                dot.classList.remove('disconnected');
+                dot.classList.add('connected');
+                text.textContent = 'Connected';
+            } else {
+                dot.classList.remove('connected');
+                dot.classList.add('disconnected');
+                text.textContent = 'Disconnected';
+            }
+        }
+
+        function addMessage(type, content, cssClass = '') {
+            const messagesDiv = document.getElementById('messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${cssClass}`;
+
+            const now = new Date().toLocaleTimeString();
+
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <span class="message-type">${type}</span>
+                    <span class="message-time">${now}</span>
+                </div>
+                <div class="message-content">${content}</div>
+            `;
+
+            messagesDiv.insertBefore(messageDiv, messagesDiv.firstChild);
+            messageCount++;
+            document.getElementById('message-count').textContent = `Messages: ${messageCount}`;
+        }
+
+        function connect() {
+            const url = document.getElementById('websocket-url').value;
+
+            addMessage('SYSTEM', `Connecting to ${url}...`);
+
+            ws = new WebSocket(url);
+
+            ws.onopen = () => {
+                addMessage('SYSTEM', 'Connected successfully!', 'message-success');
+                updateButtons(true);
+                updateStatus(true);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+
+            ws.onerror = (error) => {
+                addMessage('ERROR', `WebSocket error: ${error}`, 'message-error');
+            };
+
+            ws.onclose = () => {
+                addMessage('SYSTEM', 'Connection closed', 'message-error');
+                updateButtons(false);
+                updateStatus(false);
+            };
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function subscribe() {
+            if (!ws) return;
+
+            const idsText = document.getElementById('starlisting-ids').value;
+            const history = parseInt(document.getElementById('history').value) || 0;
+            const starlistingIds = idsText.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+
+            const message = {
+                action: 'subscribe',
+                starlisting_ids: starlistingIds,
+                history: history
+            };
+
+            ws.send(JSON.stringify(message));
+            addMessage('SENT', `Subscribe: ${JSON.stringify(message, null, 2)}`);
+        }
+
+        function unsubscribe() {
+            if (!ws) return;
+
+            const idsText = document.getElementById('starlisting-ids').value;
+            const starlistingIds = idsText.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+
+            const message = {
+                action: 'unsubscribe',
+                starlisting_ids: starlistingIds
+            };
+
+            ws.send(JSON.stringify(message));
+            addMessage('SENT', `Unsubscribe: ${JSON.stringify(message, null, 2)}`);
+        }
+
+        function ping() {
+            if (!ws) return;
+
+            const message = { action: 'ping' };
+            ws.send(JSON.stringify(message));
+            addMessage('SENT', 'Ping', 'message-ping');
+        }
+
+        function clearMessages() {
+            document.getElementById('messages').innerHTML = '';
+            messageCount = 0;
+            document.getElementById('message-count').textContent = 'Messages: 0';
+        }
+
+        function handleMessage(data) {
+            const type = data.type;
+
+            if (type === 'success') {
+                const content = `${data.message}<br>Starlisting IDs: ${data.starlisting_ids || 'N/A'}`;
+                addMessage('SUCCESS', content, 'message-success');
+            }
+            else if (type === 'error') {
+                const content = `${data.message}<br>Code: ${data.code || 'N/A'}`;
+                addMessage('ERROR', content, 'message-error');
+            }
+            else if (type === 'pong') {
+                addMessage('PONG', `Timestamp: ${data.timestamp}`, 'message-ping');
+            }
+            else if (type === 'ping') {
+                addMessage('PING', `Server heartbeat: ${data.timestamp}`, 'message-ping');
+            }
+            else if (type === 'historical') {
+                const content = `
+                    <strong>Starlisting ID:</strong> ${data.starlisting_id}<br>
+                    <strong>Trading Pair:</strong> ${data.trading_pair} (${data.exchange})<br>
+                    <strong>Market Type:</strong> ${data.market_type} | <strong>Interval:</strong> ${data.interval}<br>
+                    <strong>Candles:</strong> ${data.count}
+                `;
+                addMessage('HISTORICAL', content, 'message-historical');
+            }
+            else if (type === 'candle') {
+                const candle = data.data;
+                const content = `
+                    <strong>Starlisting ID:</strong> ${data.starlisting_id}<br>
+                    <strong>Trading Pair:</strong> ${data.trading_pair} (${data.exchange})<br>
+                    <strong>Market Type:</strong> ${data.market_type} | <strong>Interval:</strong> ${data.interval}<br>
+                    <div class="candle-data">
+                        <div class="candle-field">
+                            <div class="candle-field-label">Time</div>
+                            <div class="candle-field-value">${new Date(candle.time).toLocaleString()}</div>
+                        </div>
+                        <div class="candle-field">
+                            <div class="candle-field-label">Open</div>
+                            <div class="candle-field-value">${candle.open}</div>
+                        </div>
+                        <div class="candle-field">
+                            <div class="candle-field-label">High</div>
+                            <div class="candle-field-value">${candle.high}</div>
+                        </div>
+                        <div class="candle-field">
+                            <div class="candle-field-label">Low</div>
+                            <div class="candle-field-value">${candle.low}</div>
+                        </div>
+                        <div class="candle-field">
+                            <div class="candle-field-label">Close</div>
+                            <div class="candle-field-value">${candle.close}</div>
+                        </div>
+                        <div class="candle-field">
+                            <div class="candle-field-label">Volume</div>
+                            <div class="candle-field-value">${candle.volume}</div>
+                        </div>
+                    </div>
+                `;
+                addMessage('CANDLE', content, 'message-candle');
+            }
+            else {
+                addMessage('UNKNOWN', JSON.stringify(data, null, 2));
+            }
+        }
+    </script>
+</body>
+</html>

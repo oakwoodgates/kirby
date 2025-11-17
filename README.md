@@ -468,6 +468,93 @@ Once the API is running, visit:
 - **Swagger UI**: http://localhost:8000/docs
 - **ReDoc**: http://localhost:8000/redoc
 
+### WebSocket API (Real-time Streaming)
+
+Kirby provides a WebSocket API for real-time candle data streaming.
+
+#### Connection
+
+```
+ws://localhost:8000/ws
+```
+
+#### Quick Example
+
+**Python:**
+```python
+import asyncio
+import json
+import websockets
+
+async def stream_candles():
+    async with websockets.connect("ws://localhost:8000/ws") as ws:
+        # Subscribe to BTC/USD 1m candles
+        subscribe_msg = {
+            "action": "subscribe",
+            "starlisting_ids": [1],
+            "history": 10  # Get 10 historical candles
+        }
+        await ws.send(json.dumps(subscribe_msg))
+
+        # Receive real-time updates
+        async for message in ws:
+            data = json.loads(message)
+            if data["type"] == "candle":
+                print(f"New candle: {data['data']}")
+
+asyncio.run(stream_candles())
+```
+
+**JavaScript:**
+```javascript
+const ws = new WebSocket("ws://localhost:8000/ws");
+
+ws.onmessage = (event) => {
+    const data = JSON.parse(event.data);
+    if (data.type === "candle") {
+        console.log("New candle:", data.data);
+    }
+};
+
+// Subscribe to multiple starlistings
+ws.send(JSON.stringify({
+    action: "subscribe",
+    starlisting_ids: [1, 2, 3],
+    history: 10
+}));
+```
+
+#### Features
+
+- ✅ **Real-time updates** (~50-100ms latency via PostgreSQL LISTEN/NOTIFY)
+- ✅ **Subscribe to multiple starlistings** simultaneously
+- ✅ **Historical data on connect** (optional, up to 1000 candles)
+- ✅ **Heartbeat/ping** for connection health
+- ✅ **Auto-reconnection** support
+- ✅ **Validated messages** with error responses
+
+#### Complete Documentation
+
+See **[docs/WEBSOCKET_API.md](docs/WEBSOCKET_API.md)** for complete WebSocket API documentation including:
+- Message protocol specification
+- Client examples (Python & JavaScript)
+- Error handling and reconnection strategies
+- Performance considerations
+- Troubleshooting guide
+
+#### Test Clients
+
+**Python Test Client:**
+```bash
+python scripts/test_websocket_client.py
+```
+
+**JavaScript Test Client:**
+```bash
+# Open in browser
+open docs/examples/websocket_client.html
+```
+
 ---
 
 ## Data Export

@@ -1374,11 +1374,110 @@ docker compose logs collector | grep "Flushed buffers"
 
 ---
 
+## WebSocket API Implementation
+
+**Status**: ✅ **Completed** (November 17, 2025)
+
+Kirby now provides a production-ready WebSocket API for real-time candle data streaming.
+
+### Architecture
+
+**Approach**: PostgreSQL LISTEN/NOTIFY (no Redis required for MVP)
+
+**Components**:
+- `ConnectionManager`: Tracks WebSocket connections and subscriptions
+- `PostgresNotificationListener`: Listens for database NOTIFY events
+- WebSocket Router: `/ws` endpoint for client connections
+- Database Trigger: Fires NOTIFY on candle INSERT/UPDATE
+
+**Data Flow**:
+```
+Candle INSERT/UPDATE → PostgreSQL Trigger → NOTIFY
+  → PostgresListener → ConnectionManager.broadcast_to_subscribers()
+    → WebSocket clients
+```
+
+**Latency**: ~50-100ms from database write to client delivery
+
+### Features
+
+✅ **Subscription Model**: Clients subscribe to specific starlisting IDs (1-100 per connection)
+✅ **Multi-Starlisting**: Subscribe to multiple starlistings simultaneously
+✅ **Historical Data**: Optional history parameter (up to 1000 candles on connect)
+✅ **Heartbeat**: Automatic pings every 30 seconds (configurable)
+✅ **Connection Limits**: Max 100 concurrent connections (configurable)
+✅ **Message Validation**: Pydantic schemas for all messages
+✅ **Error Handling**: Detailed error responses with error codes
+
+### Message Protocol
+
+**Client Actions**:
+- `subscribe`: Subscribe to starlistings
+- `unsubscribe`: Unsubscribe from starlistings
+- `ping`: Health check
+
+**Server Messages**:
+- `success`: Action confirmation
+- `error`: Error response with code
+- `historical`: Historical candles on subscription
+- `candle`: Real-time candle update
+- `ping`: Heartbeat
+- `pong`: Ping response
+
+### Configuration
+
+**Environment Variables**:
+```bash
+WEBSOCKET_MAX_CONNECTIONS=100        # Max concurrent connections
+WEBSOCKET_HEARTBEAT_INTERVAL=30      # Heartbeat interval (seconds)
+WEBSOCKET_MESSAGE_SIZE_LIMIT=1048576 # Max message size (1MB)
+```
+
+### Testing
+
+**Unit Tests**: 18 tests for WebSocket manager ([tests/unit/test_websocket_manager.py](tests/unit/test_websocket_manager.py))
+**Integration Tests**: 15 tests for WebSocket endpoint ([tests/integration/test_api_websocket.py](tests/integration/test_api_websocket.py))
+**Test Clients**:
+- Python: [scripts/test_websocket_client.py](scripts/test_websocket_client.py)
+- JavaScript: [docs/examples/websocket_client.html](docs/examples/websocket_client.html)
+
+### Documentation
+
+See **[docs/WEBSOCKET_API.md](docs/WEBSOCKET_API.md)** for complete documentation.
+
+### Files Added/Modified
+
+**New Files** (10):
+1. `migrations/versions/20251117_0001_add_candle_notify_trigger.py`
+2. `src/api/websocket_manager.py`
+3. `src/api/postgres_listener.py`
+4. `src/api/routers/websocket.py`
+5. `src/schemas/websocket.py`
+6. `scripts/test_websocket_client.py`
+7. `docs/examples/websocket_client.html`
+8. `docs/WEBSOCKET_API.md`
+9. `tests/unit/test_websocket_manager.py`
+10. `tests/integration/test_api_websocket.py`
+
+**Modified Files** (3):
+1. `src/api/main.py` - Added WebSocket components to lifespan
+2. `src/config/settings.py` - Added WebSocket configuration
+3. `README.md` - Added WebSocket API section
+
+### Future Enhancements
+
+When ready to scale horizontally:
+- Add Redis pub/sub for multi-instance deployment
+- Collectors publish to Redis after DB write
+- WebSocket listener subscribes to Redis channels
+- No client-side changes required
+
+---
+
 ## Future Enhancements
 
 ### Planned Features
 
-- **WebSocket API**: Real-time streaming to clients (with Redis for sub-minute data)
 - **Caching Layer**: Redis for frequently accessed data and real-time serving
 - **More Exchanges**: Binance, Coinbase, OKX, etc.
 - **More Data Types**: Order book depth, trade tape
@@ -1582,6 +1681,7 @@ python scripts/run_tests.py                         # Run all tests
 - ✅ **Phase 7**: Production - Successfully collecting real data
 - ✅ **Phase 8**: 1-Minute Buffering - Optimized funding/OI storage (98.3% reduction)
 - ✅ **Phase 9**: Backfill System - Historical data for candles and funding rates
+- ✅ **Phase 10**: WebSocket API - Real-time streaming to clients via PostgreSQL LISTEN/NOTIFY
 
 ### Deployment Status
 
@@ -1599,6 +1699,13 @@ python scripts/run_tests.py                         # Run all tests
 - OHLCV candles (1m, 15m, 4h, 1d)
 - Funding rates (1-minute intervals with buffering)
 - Open interest (1-minute intervals with buffering)
+
+✅ **Real-time Streaming (WebSocket API)**:
+- Real-time candle updates (~50-100ms latency)
+- Subscribe to multiple starlistings simultaneously
+- Optional historical data on connection (up to 1000 candles)
+- Heartbeat mechanism for connection health
+- PostgreSQL LISTEN/NOTIFY (no Redis required)
 
 ✅ **Historical Data Backfill**:
 - Candles via CCXT (all intervals)
@@ -1620,11 +1727,11 @@ python scripts/run_tests.py                         # Run all tests
 
 - Single exchange (Hyperliquid) - more exchanges planned
 - No funding/OI API endpoints yet - data collected and stored only
-- No WebSocket API - REST only
 - No authentication - public API
 - No rate limiting - unlimited requests
 - Historical funding data incomplete (funding_rate + premium only)
 - No historical open interest data available
+- WebSocket API serves candles only (funding/OI streaming planned for future)
 
 ---
 
@@ -1632,10 +1739,10 @@ python scripts/run_tests.py                         # Run all tests
 
 This project was built collaboratively with senior engineering oversight and AI assistance (Claude). The codebase follows industry best practices and is designed for production use.
 
-**Last Updated**: November 2, 2025
-**Version**: 1.1.0 - Production with 1-Minute Buffering
-**Status**: ✅ Deployed and collecting real-time candles, funding, and OI data
-**Next Steps**: Add funding/OI API endpoints, Redis caching for real-time serving, expand to more exchanges
+**Last Updated**: November 17, 2025
+**Version**: 1.2.0 - Production with WebSocket API
+**Status**: ✅ Deployed with real-time data collection and WebSocket streaming
+**Next Steps**: Add funding/OI streaming to WebSocket API, add funding/OI REST endpoints, expand to more exchanges
 
 ---
 
