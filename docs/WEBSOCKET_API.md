@@ -1,15 +1,16 @@
 # Kirby WebSocket API Documentation
 
-> Real-time cryptocurrency candle data streaming via WebSocket
+> Real-time cryptocurrency market data streaming via WebSocket
 
 ---
 
 ## Overview
 
-The Kirby WebSocket API provides real-time streaming of candle (OHLCV) data for cryptocurrency trading pairs. Clients can subscribe to specific starlistings and receive updates as new candles are generated.
+The Kirby WebSocket API provides real-time streaming of comprehensive market data for cryptocurrency trading pairs. Clients can subscribe to specific starlistings and receive updates for candles (OHLCV), funding rates, and open interest as new data is generated.
 
 **Features:**
 - ✅ **Real-time updates** via PostgreSQL LISTEN/NOTIFY (~50-100ms latency)
+- ✅ **Three data types**: Candles (OHLCV), Funding Rates, and Open Interest
 - ✅ **Subscribe to multiple starlistings** simultaneously
 - ✅ **Historical data** on connection (optional, up to 1000 candles)
 - ✅ **Heartbeat/ping** mechanism for connection health
@@ -71,7 +72,7 @@ All messages are JSON-formatted strings. Client sends action messages, server re
 
 #### 1. Subscribe
 
-Subscribe to one or more starlistings to receive real-time updates.
+Subscribe to one or more starlistings to receive real-time updates for **all three data types** (candles, funding rates, and open interest).
 
 ```json
 {
@@ -85,6 +86,13 @@ Subscribe to one or more starlistings to receive real-time updates.
 - `action` (string, required): Must be `"subscribe"`
 - `starlisting_ids` (array, required): List of starlisting IDs (1-100 IDs)
 - `history` (integer, optional): Number of historical candles to send (0-1000, default: 0)
+
+**What you receive after subscribing:**
+- ✅ **Candle updates** (`type: "candle"`) - Real-time OHLCV data at the starlisting's interval
+- ✅ **Funding rate updates** (`type: "funding"`) - Real-time funding rates (1-minute intervals)
+- ✅ **Open interest updates** (`type: "open_interest"`) - Real-time OI data (1-minute intervals)
+
+**Note:** There is **no separate subscription** for funding or OI data. When you subscribe to a starlisting, you automatically receive all three data types. If you only want specific types, filter the messages on the client side by checking `data["type"]`.
 
 **Response:**
 ```json
@@ -109,13 +117,13 @@ Then, if `history > 0`:
     "count": 100,
     "data": [
         {
-            "time": "2025-11-17T10:00:00Z",
-            "open": "67500.50",
-            "high": "67800.00",
-            "low": "67400.25",
-            "close": "67650.75",
-            "volume": "1234.56",
-            "num_trades": 542
+            "time": "2025-11-17T22:00:00+00:00",
+            "open": "92100.000000000000000000",
+            "high": "92150.000000000000000000",
+            "low": "92050.000000000000000000",
+            "close": "92125.000000000000000000",
+            "volume": "125.458920000000000000",
+            "num_trades": 1542
         },
         ...
     ]
@@ -257,16 +265,94 @@ Real-time candle update (sent when new candle is created/updated).
     "market_type": "perps",
     "interval": "1m",
     "data": {
-        "time": "2025-11-17T10:00:00Z",
-        "open": "67500.50",
-        "high": "67800.00",
-        "low": "67400.25",
-        "close": "67650.75",
-        "volume": "1234.56",
-        "num_trades": 542
+        "time": "2025-11-17T22:29:00+00:00",
+        "open": "92225.000000000000000000",
+        "high": "92225.000000000000000000",
+        "low": "92204.000000000000000000",
+        "close": "92215.000000000000000000",
+        "volume": "11.597470000000000000",
+        "num_trades": 172
     }
 }
 ```
+
+**Note:** All price and volume fields are returned with **18-decimal precision** to support coins of any price range (from $0.000000000000000001 to $999,999,999,999). The trailing zeros are preserved in the string format.
+
+#### 7. Funding Rate Update
+
+Real-time funding rate update (sent when new funding rate is recorded).
+
+```json
+{
+    "type": "funding",
+    "starlisting_id": 1,
+    "exchange": "hyperliquid",
+    "coin": "BTC",
+    "quote": "USD",
+    "trading_pair": "BTC/USD",
+    "market_type": "perps",
+    "data": {
+        "time": "2025-11-17T10:00:00Z",
+        "funding_rate": "0.000123456789012345",
+        "premium": "0.000050000000000000",
+        "mark_price": "67650.750000000000000000",
+        "index_price": "67645.500000000000000000",
+        "oracle_price": "67648.000000000000000000",
+        "mid_price": "67649.250000000000000000",
+        "next_funding_time": "2025-11-17T18:00:00Z"
+    }
+}
+```
+
+**Fields:**
+- `funding_rate` (string): Current funding rate (positive = longs pay shorts, negative = shorts pay longs)
+- `premium` (string): Premium component of funding rate
+- `mark_price` (string, nullable): Mark price used for funding calculation
+- `index_price` (string, nullable): Index price (spot reference price)
+- `oracle_price` (string, nullable): Oracle price
+- `mid_price` (string, nullable): Mid price (best bid + best ask) / 2
+- `next_funding_time` (string, nullable): ISO timestamp of next funding payment
+
+**Notes:**
+- Funding rates are stored at **1-minute intervals** (buffered from real-time updates)
+- All price/rate fields use 18-decimal precision for accuracy
+- Historical funding data may only include `funding_rate` and `premium` (prices are null)
+- Real-time data includes all fields when available from the exchange
+
+#### 8. Open Interest Update
+
+Real-time open interest update (sent when new OI data is recorded).
+
+```json
+{
+    "type": "open_interest",
+    "starlisting_id": 1,
+    "exchange": "hyperliquid",
+    "coin": "BTC",
+    "quote": "USD",
+    "trading_pair": "BTC/USD",
+    "market_type": "perps",
+    "data": {
+        "time": "2025-11-17T10:00:00Z",
+        "open_interest": "125000.500000000000000000",
+        "notional_value": "8456789000.000000000000000000",
+        "day_base_volume": "50000.250000000000000000",
+        "day_notional_volume": "3378912500.000000000000000000"
+    }
+}
+```
+
+**Fields:**
+- `open_interest` (string): Total open interest in base asset (e.g., BTC)
+- `notional_value` (string, nullable): Open interest in quote currency (e.g., USD)
+- `day_base_volume` (string, nullable): 24-hour volume in base asset
+- `day_notional_volume` (string, nullable): 24-hour volume in quote currency
+
+**Notes:**
+- Open interest is stored at **1-minute intervals** (buffered from real-time updates)
+- All volume fields use 18-decimal precision
+- Only available for perpetual/futures markets (not spot)
+- Historical OI data is **not available** - only real-time collection
 
 ---
 
@@ -281,11 +367,11 @@ import asyncio
 import json
 import websockets
 
-async def stream_candles():
+async def stream_market_data():
     uri = "ws://localhost:8000/ws"
 
     async with websockets.connect(uri) as websocket:
-        # Subscribe to BTC/USD 1m candles with 10 historical candles
+        # Subscribe to BTC/USD perpetuals with 10 historical candles
         subscribe_msg = {
             "action": "subscribe",
             "starlisting_ids": [1],
@@ -301,11 +387,24 @@ async def stream_candles():
 
             if data["type"] == "candle":
                 candle = data["data"]
-                print(f"New candle: {candle['time']} | Close: {candle['close']}")
+                print(f"Candle: {candle['time']} | Close: {candle['close']}")
+
+            elif data["type"] == "funding":
+                funding = data["data"]
+                print(f"Funding: {funding['time']} | Rate: {funding['funding_rate']}")
+
+            elif data["type"] == "open_interest":
+                oi = data["data"]
+                print(f"OI: {oi['time']} | Open Interest: {oi['open_interest']}")
+
             elif data["type"] == "historical":
                 print(f"Received {data['count']} historical candles")
 
-asyncio.run(stream_candles())
+            elif data["type"] == "ping":
+                # Server heartbeat - connection is alive
+                pass
+
+asyncio.run(stream_market_data())
 ```
 
 ### JavaScript Client
@@ -332,11 +431,15 @@ ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
 
     if (data.type === "candle") {
-        console.log("New candle:", data.data);
+        console.log("Candle:", data.data);
+    } else if (data.type === "funding") {
+        console.log("Funding Rate:", data.data);
+    } else if (data.type === "open_interest") {
+        console.log("Open Interest:", data.data);
     } else if (data.type === "historical") {
         console.log(`Received ${data.count} historical candles`);
     } else if (data.type === "ping") {
-        // Server heartbeat - can ignore or respond
+        // Server heartbeat - connection is alive
     }
 };
 
@@ -469,7 +572,11 @@ async def connect():
 
 - **Max connections**: 100 concurrent WebSocket connections (configurable)
 - **Max subscriptions per client**: Up to 100 starlistings
-- **Message rate**: Depends on candle interval frequency (e.g., 1m interval = 1 update/minute per starlisting)
+- **Message rate per starlisting**:
+  - **Candles**: Depends on interval (e.g., 1m = 1 update/minute, 15m = 1 update/15 minutes)
+  - **Funding rates**: 1 update/minute (buffered from real-time)
+  - **Open interest**: 1 update/minute (buffered from real-time)
+- **Total message rate**: (candle updates) + (funding updates) + (OI updates) per subscribed starlisting
 
 ### Scaling
 
@@ -507,13 +614,17 @@ Future enhancements:
 
 ### No Updates Received
 
-**Problem**: Subscribed but no candle updates
+**Problem**: Subscribed but no updates (candles, funding, or OI)
 
 **Debugging**:
 1. Check if collector is running: `docker compose logs -f collector`
-2. Verify candles are being stored: `GET /candles/{exchange}/{coin}/{quote}/{market_type}/{interval}`
+2. Verify data is being stored:
+   - Candles: `docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM candles WHERE starlisting_id = 1;"`
+   - Funding: `docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM funding_rates WHERE starlisting_id = 1;"`
+   - Open Interest: `docker compose exec timescaledb psql -U kirby -d kirby -c "SELECT COUNT(*) FROM open_interest WHERE starlisting_id = 1;"`
 3. Check WebSocket connection is active (receiving heartbeat pings)
-4. Verify starlisting is active and collecting data
+4. Verify starlisting is active and collector is running for that market
+5. Check collector logs for buffer flush messages (funding/OI updates every minute)
 
 ### Connection Timeout
 
@@ -595,11 +706,14 @@ pytest tests/integration/test_api_websocket.py -v
 
 ## Future Enhancements
 
+### Completed Features
+
+- ✅ **Funding rate streams** - Real-time funding rate updates (1-minute buffered)
+- ✅ **Open interest streams** - Real-time OI updates (1-minute buffered)
+
 ### Planned Features
 
 - [ ] **Redis pub/sub** for horizontal scaling
-- [ ] **Funding rate streams** (in addition to candles)
-- [ ] **Open interest streams**
 - [ ] **Authentication** via API keys
 - [ ] **Rate limiting** per client
 - [ ] **Subscription filters** (e.g., only receive updates when volume > X)
