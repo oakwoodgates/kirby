@@ -157,6 +157,64 @@ echo "Verifying production database..."
 PROD_COUNT=$(docker compose exec -T timescaledb psql -U kirby -d kirby -t -c "SELECT COUNT(*) FROM starlistings;" | tr -d ' ')
 echo -e "${GREEN}[✓] Production starlistings: $PROD_COUNT${NC}"
 
+# Bootstrap Admin User (if no users exist)
+echo ""
+echo "========================================"
+echo "  Checking for Admin User"
+echo "========================================"
+echo ""
+
+USER_COUNT=$(docker compose exec -T timescaledb psql -U kirby -d kirby -t -c "SELECT COUNT(*) FROM users;" 2>/dev/null | tr -d ' ')
+
+if [ -z "$USER_COUNT" ] || [ "$USER_COUNT" = "0" ]; then
+    echo "No users found. Creating initial admin user..."
+
+    # Run bootstrap script and capture output
+    BOOTSTRAP_OUTPUT=$(docker compose exec -T collector python -m scripts.bootstrap_admin 2>&1)
+    BOOTSTRAP_EXIT_CODE=$?
+
+    if [ $BOOTSTRAP_EXIT_CODE -eq 0 ]; then
+        # Extract the API key from the output (it's the line after "API KEY")
+        API_KEY=$(echo "$BOOTSTRAP_OUTPUT" | grep -A 1 "API KEY" | tail -n 1 | xargs)
+
+        echo ""
+        echo -e "${GREEN}========================================"
+        echo "  🔐 ADMIN USER CREATED"
+        echo "========================================${NC}"
+        echo ""
+        echo -e "${YELLOW}📧 Email:    admin@localhost${NC}"
+        echo -e "${YELLOW}👤 Username: admin${NC}"
+        echo ""
+        echo -e "${RED}🔑 API KEY (SAVE THIS NOW - IT WILL NOT BE SHOWN AGAIN):${NC}"
+        echo ""
+        echo -e "${GREEN}    $API_KEY${NC}"
+        echo ""
+        echo -e "${GREEN}========================================${NC}"
+        echo ""
+        echo -e "${YELLOW}⚠️  IMPORTANT: Copy this API key to a secure location!${NC}"
+        echo -e "${YELLOW}   You will need it to access the API.${NC}"
+        echo ""
+
+        # Store API key for use in next steps examples
+        ADMIN_API_KEY="$API_KEY"
+    else
+        echo -e "${RED}[✗] Failed to create admin user${NC}"
+        echo "$BOOTSTRAP_OUTPUT"
+    fi
+else
+    echo -e "${GREEN}[✓] Found $USER_COUNT existing user(s)${NC}"
+    echo -e "${YELLOW}[!] Skipping admin user creation${NC}"
+    echo ""
+    echo "To create additional users, use the admin API:"
+    echo "  curl -X POST http://localhost:8000/admin/users \\"
+    echo "    -H 'Authorization: Bearer YOUR_API_KEY' \\"
+    echo "    -H 'Content-Type: application/json' \\"
+    echo "    -d '{\"email\": \"user@example.com\", \"username\": \"user1\", \"is_admin\": false}'"
+    echo ""
+
+    ADMIN_API_KEY="YOUR_API_KEY"
+fi
+
 # Setup Training Database (kirby_training)
 echo ""
 echo "========================================"
@@ -239,9 +297,21 @@ echo ""
 echo -e "${GREEN}Next Steps:${NC}"
 echo "1. Check collector logs: docker compose logs -f collector"
 echo "2. Check API: curl http://localhost:8000/health"
-echo "3. View production starlistings: curl http://localhost:8000/starlistings"
-echo "4. Wait 1-2 minutes for data collection to start"
-echo "5. Check production candles: curl http://localhost:8000/candles/hyperliquid/BTC/USD/perps/1m?limit=5"
+if [ -n "$ADMIN_API_KEY" ] && [ "$ADMIN_API_KEY" != "YOUR_API_KEY" ]; then
+    echo "3. View production starlistings:"
+    echo "   curl -H \"Authorization: Bearer $ADMIN_API_KEY\" http://localhost:8000/starlistings"
+    echo "4. Wait 1-2 minutes for data collection to start"
+    echo "5. Check production candles:"
+    echo "   curl -H \"Authorization: Bearer $ADMIN_API_KEY\" \\"
+    echo "     http://localhost:8000/candles/hyperliquid/BTC/USD/perps/1m?limit=5"
+else
+    echo "3. View production starlistings:"
+    echo "   curl -H \"Authorization: Bearer YOUR_API_KEY\" http://localhost:8000/starlistings"
+    echo "4. Wait 1-2 minutes for data collection to start"
+    echo "5. Check production candles:"
+    echo "   curl -H \"Authorization: Bearer YOUR_API_KEY\" \\"
+    echo "     http://localhost:8000/candles/hyperliquid/BTC/USD/perps/1m?limit=5"
+fi
 echo ""
 echo -e "${YELLOW}Important:${NC}"
 echo "- API is running on: http://localhost:8000"
