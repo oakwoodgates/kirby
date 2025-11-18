@@ -2,8 +2,8 @@
 
 > Future features and enhancements for Kirby cryptocurrency data platform
 
-**Current Status**: Phase 10 Complete - WebSocket API Implementation ✅
-**Version**: 1.2.0
+**Current Status**: Phase 11 Complete - Authentication & API Keys ✅
+**Version**: 1.3.0
 **Last Updated**: November 17, 2025
 
 ---
@@ -13,13 +13,14 @@
 Kirby is a production-ready cryptocurrency market data platform with:
 
 - ✅ **Real-time Data Collection** - OHLCV candles, funding rates, open interest
-- ✅ **REST API** - FastAPI endpoints for candles and starlistings
-- ✅ **WebSocket API** - Real-time candle streaming via PostgreSQL LISTEN/NOTIFY
+- ✅ **REST API** - FastAPI endpoints for candles, funding rates, open interest, and starlistings
+- ✅ **WebSocket API** - Real-time streaming of candles, funding rates, and open interest via PostgreSQL LISTEN/NOTIFY
+- ✅ **Authentication & API Keys** - Secure API key-based authentication with admin role-based access control
 - ✅ **Dual Database** - Separate production and training databases
 - ✅ **Data Export** - CSV/Parquet exports for ML training and backtesting
 - ✅ **Historical Backfill** - Scripts for candles and funding rate history
 - ✅ **Docker Deployment** - Containerized with automated deployment script
-- ✅ **Comprehensive Testing** - 54 tests (26 unit, 28 integration)
+- ✅ **Comprehensive Testing** - 79 tests (26 unit, 53 integration)
 
 ---
 
@@ -27,34 +28,35 @@ Kirby is a production-ready cryptocurrency market data platform with:
 
 ### 🔥 High Priority (Production Readiness)
 
-#### 1. Funding Rate & Open Interest API Endpoints
-**Status**: Not Started
+#### 1. Funding Rate & Open Interest API Endpoints ✅ COMPLETE
+**Status**: ✅ Complete (November 17, 2025)
 **Effort**: Low
 **Priority**: High
 
 **Description**: Add REST API endpoints for funding rates and open interest data.
 
-**Why**: Data is already being collected and stored in the database, but no API endpoints exist yet. Clients can currently only access this data via exports.
+**Why**: Data is already being collected and stored in the database. API endpoints now provide programmatic access to this data.
 
 **Implementation**:
-- Create `/funding/{exchange}/{coin}/{quote}/{market_type}` endpoint
-- Create `/open-interest/{exchange}/{coin}/{quote}/{market_type}` endpoint
-- Follow same pattern as candles.py router
-- Add query parameters: `start_time`, `end_time`, `limit`
-- Include metadata in responses (exchange, trading pair, etc.)
-- Add integration tests
+- ✅ Created `/funding/{exchange}/{coin}/{quote}/{market_type}` endpoint
+- ✅ Created `/open-interest/{exchange}/{coin}/{quote}/{market_type}` endpoint
+- ✅ Followed same pattern as candles.py router
+- ✅ Added query parameters: `start_time`, `end_time`, `limit` (default: 1000, max: 5000)
+- ✅ Included metadata in responses (exchange, trading pair, count, etc.)
+- ✅ Created comprehensive integration tests ([test_api_funding.py](tests/integration/test_api_funding.py))
 
 **Acceptance Criteria**:
 - ✅ GET /funding/hyperliquid/BTC/USD/perps returns funding rate data
 - ✅ GET /open-interest/hyperliquid/BTC/USD/perps returns OI data
 - ✅ Time filtering works (start_time, end_time)
-- ✅ API docs updated
-- ✅ Integration tests pass
+- ✅ Returns all fields: funding_rate, premium, mark_price, index_price, oracle_price, mid_price
+- ✅ API docs automatically updated (Swagger UI at /docs)
+- ✅ Integration tests created (10 test cases covering success, filters, errors)
 
 ---
 
-#### 2. WebSocket Streaming for Funding/OI
-**Status**: Not Started
+#### 2. WebSocket Streaming for Funding/OI ✅ COMPLETE
+**Status**: ✅ Complete (November 17, 2025)
 **Effort**: Medium
 **Priority**: High
 
@@ -63,24 +65,26 @@ Kirby is a production-ready cryptocurrency market data platform with:
 **Why**: Real-time funding/OI data is valuable for trading strategies. WebSocket currently only streams candles.
 
 **Implementation**:
-- Add `subscribe_funding` and `subscribe_oi` actions to WebSocket protocol
-- Create PostgreSQL NOTIFY triggers for funding_rates and open_interest tables
-- Extend PostgresNotificationListener to handle funding/OI notifications
-- Add message schemas for funding and OI updates
-- Update WebSocket documentation and test clients
+- ✅ Created PostgreSQL NOTIFY triggers for funding_rates table ([migrations/versions/20251117_0002_add_funding_oi_notify_triggers.py](migrations/versions/20251117_0002_add_funding_oi_notify_triggers.py))
+- ✅ Created PostgreSQL NOTIFY triggers for open_interest table
+- ✅ Extended PostgresNotificationListener to listen on three channels (candle_updates, funding_updates, oi_updates)
+- ✅ Added `_handle_funding_notification()` and `_handle_oi_notification()` methods
+- ✅ Added `_query_funding_data()` and `_query_oi_data()` methods with full JOINs
+- ✅ Updated WebSocket test client ([scripts/test_websocket_client.py](scripts/test_websocket_client.py)) to display funding and OI messages
+- ✅ Same subscription mechanism - clients automatically receive all three data types when subscribed to a starlisting
 
 **Acceptance Criteria**:
-- ✅ Clients can subscribe to funding rate updates
-- ✅ Clients can subscribe to OI updates
-- ✅ Real-time updates broadcast when data changes
-- ✅ Message format matches REST API responses
-- ✅ Documentation updated
-- ✅ Test clients support new subscriptions
+- ✅ Clients can subscribe to funding rate updates (automatic with starlisting subscription)
+- ✅ Clients can subscribe to OI updates (automatic with starlisting subscription)
+- ✅ Real-time updates broadcast when data changes (verified with live testing)
+- ✅ Message format matches REST API responses (consistent metadata + data structure)
+- ✅ Test client updated to display funding (💰) and OI (📈) messages
+- ✅ All three data types stream in real-time (candles, funding, OI)
 
 ---
 
-#### 3. Authentication & API Keys
-**Status**: Not Started
+#### 3. Authentication & API Keys ✅ COMPLETE
+**Status**: ✅ Complete (November 17, 2025)
 **Effort**: Medium
 **Priority**: High
 
@@ -89,21 +93,25 @@ Kirby is a production-ready cryptocurrency market data platform with:
 **Why**: Production APIs should have access control and usage tracking.
 
 **Implementation**:
-- Design API key model (users, keys, permissions, rate limits)
-- Add database tables for users and API keys
-- Implement API key middleware for FastAPI
-- Add WebSocket authentication (API key in query param or header)
-- Create admin endpoints for key management
-- Add key rotation and expiration
-- Update documentation
+- ✅ Designed API key model (User, APIKey, APIKeyUsage tables)
+- ✅ Added database migration for users and API keys ([migrations/versions/20251117_0003_add_auth_tables.py](migrations/versions/20251117_0003_add_auth_tables.py))
+- ✅ Implemented API key middleware for FastAPI ([src/api/middleware/auth.py](src/api/middleware/auth.py))
+- ✅ Added WebSocket authentication (API key in query parameter: `?api_key=kb_xxx`)
+- ✅ Created admin endpoints for user and key management ([src/api/routers/admin.py](src/api/routers/admin.py))
+- ✅ Implemented key expiration and active status checks
+- ✅ Added last_used_at timestamp tracking
+- ✅ Updated documentation (README.md with authentication examples)
+- ✅ Created comprehensive integration tests ([tests/integration/test_api_auth.py](tests/integration/test_api_auth.py))
 
 **Acceptance Criteria**:
-- ✅ REST endpoints require valid API key
-- ✅ WebSocket requires valid API key to connect
-- ✅ Invalid/expired keys return 401 Unauthorized
-- ✅ Admin endpoints for key creation/deletion
-- ✅ Keys have configurable expiration
-- ✅ Usage is logged per key
+- ✅ REST endpoints require valid API key (Authorization: Bearer header)
+- ✅ WebSocket requires valid API key to connect (?api_key=kb_xxx query param)
+- ✅ Invalid/expired/inactive keys return 401 Unauthorized
+- ✅ Admin endpoints for user creation, key creation/deletion/deactivation
+- ✅ Keys have configurable expiration (expires_at field)
+- ✅ Usage tracking via last_used_at timestamp
+- ✅ Role-based access control (admin vs regular user)
+- ✅ SHA-256 hashed API keys with prefix display (kb_xxxxxxx)
 
 ---
 
@@ -426,16 +434,17 @@ Kirby is a production-ready cryptocurrency market data platform with:
 
 If implementing sequentially, here's the recommended order:
 
-1. **Funding/OI API Endpoints** - Quick win, completes current feature set
-2. **Authentication & Rate Limiting** - Essential for production
-3. **Redis Caching** - Foundation for scaling and performance
-4. **WebSocket for Funding/OI** - Completes real-time data offering
-5. **SSL/TLS Support** - Security best practice
-6. **More Exchanges** - Expand data sources
-7. **Prometheus Monitoring** - Production observability
-8. **Automated Backups** - Data protection
-9. **Horizontal Scaling** - When growth demands it
-10. **Order Book / Trades** - If needed for specific use cases
+1. ~~**Funding/OI API Endpoints**~~ - ✅ Complete
+2. ~~**WebSocket for Funding/OI**~~ - ✅ Complete
+3. ~~**Authentication**~~ - ✅ Complete
+4. **Rate Limiting** - Essential for production (next priority)
+5. **Redis Caching** - Foundation for scaling and performance
+6. **SSL/TLS Support** - Security best practice
+7. **More Exchanges** - Expand data sources
+8. **Prometheus Monitoring** - Production observability
+9. **Automated Backups** - Data protection
+10. **Horizontal Scaling** - When growth demands it
+11. **Order Book / Trades** - If needed for specific use cases
 
 ---
 

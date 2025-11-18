@@ -9,6 +9,7 @@ Kirby ingests real-time and historical market data from multiple cryptocurrency 
 ## Features
 
 - **Real-time Data Collection**: WebSocket connections for live OHLCV candles, funding rates, and open interest
+- **Secure Authentication**: API key-based authentication with admin role-based access control
 - **1-Minute Buffering**: Optimized storage for funding/OI data (98.3% storage reduction)
 - **Historical Backfills**: Automated retrieval of historical candle and funding rate data
 - **High Performance**: Async I/O with optimized bulk inserts using asyncpg
@@ -259,6 +260,78 @@ curl http://localhost:8000/health/hyperliquid
 http://localhost:8000
 ```
 
+### Authentication
+
+Most API endpoints require authentication via API keys. Only the `/health` endpoint is public.
+
+#### Creating an API Key
+
+API keys are managed through admin endpoints. You must first create an admin user:
+
+```bash
+# Create admin user (run once during setup)
+curl -X POST "http://localhost:8000/admin/users" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "username": "admin",
+    "is_admin": true
+  }'
+
+# Create an API key for the admin user
+curl -X POST "http://localhost:8000/admin/users/{user_id}/keys" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "My API Key",
+    "rate_limit": 1000
+  }'
+```
+
+The response will include the full API key. **Save it immediately** - it's only shown once:
+
+```json
+{
+  "id": 1,
+  "name": "My API Key",
+  "key": "kb_123456KEY",
+  "key_prefix": "kb_123456",
+  "rate_limit": 1000,
+  "is_active": true,
+  "created_at": "2025-11-17T10:00:00Z"
+}
+```
+
+#### Using API Keys
+
+**REST API** - Include the API key in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer kb_123456KEY" \
+  "http://localhost:8000/starlistings"
+```
+
+**WebSocket** - Include the API key as a query parameter:
+
+```javascript
+const ws = new WebSocket('ws://localhost:8000/ws?api_key=kb_123456KEY');
+```
+
+#### API Key Management
+
+```bash
+# List all API keys for a user
+curl -H "Authorization: Bearer {admin_key}" \
+  "http://localhost:8000/admin/users/{user_id}/keys"
+
+# Deactivate an API key
+curl -X PATCH "http://localhost:8000/admin/keys/{key_id}/deactivate" \
+  -H "Authorization: Bearer {admin_key}"
+
+# Delete an API key
+curl -X DELETE "http://localhost:8000/admin/keys/{key_id}" \
+  -H "Authorization: Bearer {admin_key}"
+```
+
 ### Endpoints
 
 #### Get Candle Data
@@ -281,7 +354,8 @@ GET /candles/{exchange}/{coin}/{quote}/{market_type}/{interval}
 
 **Example:**
 ```bash
-curl "http://localhost:8000/candles/hyperliquid/BTC/USD/perps/15m?limit=100"
+curl -H "Authorization: Bearer {your_api_key}" \
+  "http://localhost:8000/candles/hyperliquid/BTC/USD/perps/15m?limit=100"
 ```
 
 **Response:**
@@ -318,7 +392,8 @@ GET /starlistings
 
 **Example:**
 ```bash
-curl http://localhost:8000/starlistings
+curl -H "Authorization: Bearer {your_api_key}" \
+  "http://localhost:8000/starlistings"
 ```
 
 **Response:**
@@ -388,7 +463,8 @@ GET /funding/{exchange}/{coin}/{quote}/{market_type}
 
 **Example:**
 ```bash
-curl "http://localhost:8000/funding/hyperliquid/BTC/USD/perps?limit=10"
+curl -H "Authorization: Bearer {your_api_key}" \
+  "http://localhost:8000/funding/hyperliquid/BTC/USD/perps?limit=10"
 ```
 
 **Response:**
@@ -436,7 +512,8 @@ GET /open-interest/{exchange}/{coin}/{quote}/{market_type}
 
 **Example:**
 ```bash
-curl "http://localhost:8000/open-interest/hyperliquid/BTC/USD/perps?limit=10"
+curl -H "Authorization: Bearer {your_api_key}" \
+  "http://localhost:8000/open-interest/hyperliquid/BTC/USD/perps?limit=10"
 ```
 
 **Response:**
@@ -487,7 +564,8 @@ import json
 import websockets
 
 async def stream_candles():
-    async with websockets.connect("ws://localhost:8000/ws") as ws:
+    api_key = "kb_123456KEY"  # Replace with your API key
+    async with websockets.connect(f"ws://localhost:8000/ws?api_key={api_key}") as ws:
         # Subscribe to BTC/USD 1m candles
         subscribe_msg = {
             "action": "subscribe",
@@ -507,7 +585,8 @@ asyncio.run(stream_candles())
 
 **JavaScript:**
 ```javascript
-const ws = new WebSocket("ws://localhost:8000/ws");
+const apiKey = "kb_123456KEY";  // Replace with your API key
+const ws = new WebSocket(`ws://localhost:8000/ws?api_key=${apiKey}`);
 
 ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
