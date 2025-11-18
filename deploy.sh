@@ -174,31 +174,48 @@ if [ -z "$USER_COUNT" ] || [ "$USER_COUNT" = "0" ]; then
     BOOTSTRAP_EXIT_CODE=$?
 
     if [ $BOOTSTRAP_EXIT_CODE -eq 0 ]; then
-        # Extract the API key from the output (it's the line after "API KEY")
-        API_KEY=$(echo "$BOOTSTRAP_OUTPUT" | grep -A 1 "API KEY" | tail -n 1 | xargs)
-
+        # Show full bootstrap output for debugging
         echo ""
-        echo -e "${GREEN}========================================"
-        echo "  🔐 ADMIN USER CREATED"
-        echo "========================================${NC}"
-        echo ""
-        echo -e "${YELLOW}📧 Email:    admin@localhost${NC}"
-        echo -e "${YELLOW}👤 Username: admin${NC}"
-        echo ""
-        echo -e "${RED}🔑 API KEY (SAVE THIS NOW - IT WILL NOT BE SHOWN AGAIN):${NC}"
-        echo ""
-        echo -e "${GREEN}    $API_KEY${NC}"
-        echo ""
-        echo -e "${GREEN}========================================${NC}"
-        echo ""
-        echo -e "${YELLOW}⚠️  IMPORTANT: Copy this API key to a secure location!${NC}"
-        echo -e "${YELLOW}   You will need it to access the API.${NC}"
+        echo "Bootstrap script output:"
+        echo "----------------------------------------"
+        echo "$BOOTSTRAP_OUTPUT"
+        echo "----------------------------------------"
         echo ""
 
-        # Store API key for use in next steps examples
-        ADMIN_API_KEY="$API_KEY"
+        # Extract the API key from the output (it's 2 lines after "API KEY" - there's a blank line)
+        API_KEY=$(echo "$BOOTSTRAP_OUTPUT" | grep -A 2 "API KEY" | tail -n 1 | xargs)
+
+        # Verify user was actually created
+        USER_VERIFY=$(docker compose exec -T timescaledb psql -U kirby -d kirby -t -c "SELECT COUNT(*) FROM users;" 2>/dev/null | tr -d ' ')
+
+        if [ -n "$API_KEY" ] && [ "$USER_VERIFY" = "1" ]; then
+            echo ""
+            echo -e "${GREEN}========================================"
+            echo "  🔐 ADMIN USER CREATED"
+            echo "========================================${NC}"
+            echo ""
+            echo -e "${YELLOW}📧 Email:    admin@localhost${NC}"
+            echo -e "${YELLOW}👤 Username: admin${NC}"
+            echo ""
+            echo -e "${RED}🔑 API KEY (SAVE THIS NOW - IT WILL NOT BE SHOWN AGAIN):${NC}"
+            echo ""
+            echo -e "${GREEN}    $API_KEY${NC}"
+            echo ""
+            echo -e "${GREEN}========================================${NC}"
+            echo ""
+            echo -e "${YELLOW}⚠️  IMPORTANT: Copy this API key to a secure location!${NC}"
+            echo -e "${YELLOW}   You will need it to access the API.${NC}"
+            echo ""
+
+            # Store API key for use in next steps examples
+            ADMIN_API_KEY="$API_KEY"
+        else
+            echo -e "${RED}[✗] Bootstrap script succeeded but user was not created${NC}"
+            echo "API_KEY extracted: '$API_KEY'"
+            echo "User count in DB: $USER_VERIFY"
+        fi
     else
-        echo -e "${RED}[✗] Failed to create admin user${NC}"
+        echo -e "${RED}[✗] Failed to create admin user (exit code: $BOOTSTRAP_EXIT_CODE)${NC}"
         echo "$BOOTSTRAP_OUTPUT"
     fi
 else
