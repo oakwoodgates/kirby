@@ -75,6 +75,10 @@ The API will be available at `http://localhost:8000`
   - Monitoring and maintenance
   - Backup strategies
   - Troubleshooting guide
+- **[docs/BOOTSTRAP.md](docs/BOOTSTRAP.md)** - Admin user bootstrap guide
+  - First admin user creation
+  - Manual and automatic bootstrap
+  - Security best practices
 
 ---
 
@@ -264,25 +268,47 @@ http://localhost:8000
 
 Most API endpoints require authentication via API keys. Only the `/health` endpoint is public.
 
-#### Creating an API Key
+#### First-Time Setup: Creating Admin User
 
-API keys are managed through admin endpoints. You must first create an admin user:
+On a fresh deployment, the `./deploy.sh` script automatically creates the first admin user and API key if no users exist. The API key is displayed in the terminal output.
+
+**Manual bootstrap** (if needed):
 
 ```bash
-# Create admin user (run once during setup)
+# Inside Docker container
+docker compose exec collector python -m scripts.bootstrap_admin
+
+# With custom credentials
+docker compose exec collector python -m scripts.bootstrap_admin \
+  --email admin@mycompany.com \
+  --username myadmin
+```
+
+The bootstrap script will display your API key **once** - save it immediately!
+
+**See [docs/BOOTSTRAP.md](docs/BOOTSTRAP.md) for complete bootstrap guide.**
+
+#### Creating Additional Users
+
+After bootstrapping, use the admin API to create additional users and API keys:
+
+```bash
+# Create a new user
 curl -X POST "http://localhost:8000/admin/users" \
+  -H "Authorization: Bearer kb_YOUR_ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "admin@example.com",
-    "username": "admin",
-    "is_admin": true
+    "email": "user@example.com",
+    "username": "user1",
+    "is_admin": false
   }'
 
-# Create an API key for the admin user
-curl -X POST "http://localhost:8000/admin/users/{user_id}/keys" \
+# Create an API key for the user (replace USER_ID)
+curl -X POST "http://localhost:8000/admin/users/USER_ID/keys" \
+  -H "Authorization: Bearer kb_YOUR_ADMIN_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "My API Key",
+    "name": "Production Key",
     "rate_limit": 1000
   }'
 ```
@@ -291,10 +317,10 @@ The response will include the full API key. **Save it immediately** - it's only 
 
 ```json
 {
-  "id": 1,
-  "name": "My API Key",
-  "key": "kb_123456KEY",
-  "key_prefix": "kb_123456",
+  "id": 2,
+  "name": "Production Key",
+  "key": "kb_a1b2c3d4e5f6789012345678901234567890abcd",
+  "key_prefix": "kb_a1b2c3d4",
   "rate_limit": 1000,
   "is_active": true,
   "created_at": "2025-11-17T10:00:00Z"
