@@ -26,7 +26,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.config.settings import settings
-from src.db.connection import create_engine_and_session
+from src.db.connection import get_session_factory, get_sqlalchemy_engine
 from src.db.models import APIKey, User
 
 
@@ -158,7 +158,9 @@ async def bootstrap(
     Returns:
         Tuple of (success, api_key or error_message)
     """
-    engine, session_maker = create_engine_and_session(str(settings.database_url))
+    # Get engine and session factory
+    engine = get_sqlalchemy_engine()
+    session_maker = get_session_factory()
 
     try:
         async with session_maker() as session:
