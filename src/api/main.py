@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 import structlog
 
 from src.api.postgres_listener import PostgresNotificationListener
-from src.api.routers import candles, funding, health, starlistings, websocket
+from src.api.routers import admin, candles, funding, health, starlistings, websocket
 from src.api.websocket_manager import ConnectionManager
 from src.config.settings import settings
 from src.db.connection import close_db, init_db
@@ -119,6 +119,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # Include routers
+app.include_router(admin.router)
 app.include_router(candles.router)
 app.include_router(funding.router)
 app.include_router(starlistings.router)

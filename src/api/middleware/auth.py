@@ -3,11 +3,12 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import HTTPException, Security, status
+from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.dependencies import get_db_session
 from src.db.models import APIKey, User
 from src.utils.auth import hash_api_key, is_key_expired
 
@@ -125,7 +126,7 @@ async def validate_api_key(
 
 
 async def get_current_user(
-    session: AsyncSession,
+    session: AsyncSession = Depends(get_db_session),
     api_key: Optional[str] = Security(get_api_key_from_header),
 ) -> AuthenticatedUser:
     """Dependency to get the current authenticated user.
@@ -180,7 +181,7 @@ async def get_current_admin_user(
 
 
 async def get_optional_user(
-    session: AsyncSession,
+    session: AsyncSession = Depends(get_db_session),
     api_key: Optional[str] = Security(get_api_key_from_header),
 ) -> Optional[AuthenticatedUser]:
     """Dependency to optionally get the current authenticated user.

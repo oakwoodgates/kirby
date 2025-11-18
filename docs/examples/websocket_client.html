@@ -284,8 +284,14 @@
 
         <div class="controls">
             <div class="control-group">
+                <label for="api-key">API Key (required)</label>
+                <input type="text" id="api-key" value="" placeholder="kb_123456KEY">
+            </div>
+
+            <div class="control-group">
                 <label for="websocket-url">WebSocket URL</label>
-                <input type="text" id="websocket-url" value="ws://localhost:8000/ws" placeholder="ws://localhost:8000/ws">
+                <input type="text" id="websocket-url" value="ws://localhost:8000/ws" placeholder="ws://localhost:8000/ws" readonly>
+                <small style="color: #6c757d; margin-top: 4px; display: block;">API key will be appended automatically</small>
             </div>
 
             <div class="control-group">
@@ -371,9 +377,19 @@
         }
 
         function connect() {
-            const url = document.getElementById('websocket-url').value;
+            const baseUrl = document.getElementById('websocket-url').value;
+            const apiKey = document.getElementById('api-key').value.trim();
 
-            addMessage('SYSTEM', `Connecting to ${url}...`);
+            // Validate API key
+            if (!apiKey) {
+                addMessage('ERROR', 'API key is required. Please enter your API key.', 'message-error');
+                return;
+            }
+
+            // Append API key to URL
+            const url = `${baseUrl}?api_key=${apiKey}`;
+
+            addMessage('SYSTEM', `Connecting to ${baseUrl}...`);
 
             ws = new WebSocket(url);
 

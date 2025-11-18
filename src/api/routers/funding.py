@@ -1,5 +1,7 @@
 """
 API router for funding rate and open interest endpoints.
+
+All endpoints require authentication via API key (X-API-Key header).
 """
 from datetime import datetime
 
@@ -8,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_db_session
+from src.api.middleware.auth import get_current_user, AuthenticatedUser
 from src.db.models import Coin, Exchange, MarketType, QuoteCurrency, Starlisting
 from src.db.repositories import FundingRateRepository, OpenInterestRepository
 from src.schemas.funding import (
@@ -37,6 +40,7 @@ async def get_funding_rates(
     end_time: datetime | None = Query(None, description="End time (ISO 8601 or Unix timestamp)"),
     limit: int = Query(1000, ge=1, le=5000, description="Maximum number of records to return"),
     session: AsyncSession = Depends(get_db_session),
+    current_user: AuthenticatedUser = Depends(get_current_user),
 ) -> FundingRateListResponse:
     """
     Get funding rate data for a perpetual trading pair.
@@ -143,6 +147,7 @@ async def get_open_interest(
     end_time: datetime | None = Query(None, description="End time (ISO 8601 or Unix timestamp)"),
     limit: int = Query(1000, ge=1, le=5000, description="Maximum number of records to return"),
     session: AsyncSession = Depends(get_db_session),
+    current_user: AuthenticatedUser = Depends(get_current_user),
 ) -> OpenInterestListResponse:
     """
     Get open interest data for a perpetual trading pair.

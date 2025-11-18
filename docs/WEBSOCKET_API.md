@@ -16,6 +16,34 @@ The Kirby WebSocket API provides real-time streaming of comprehensive market dat
 - ✅ **Heartbeat/ping** mechanism for connection health
 - ✅ **Automatic reconnection** support
 - ✅ **Validated messages** with detailed error responses
+- ✅ **Secure authentication** via API key
+
+---
+
+## Authentication
+
+**Required**: All WebSocket connections require a valid API key passed as a query parameter.
+
+### API Key Format
+
+```
+ws://localhost:8000/ws?api_key=kb_123456KEY
+```
+
+**Notes:**
+- API keys start with the prefix `kb_`
+- Keys must be active and not expired
+- Inactive user accounts will be rejected
+- See the main [README.md](../README.md#authentication) for how to create API keys
+
+### Authentication Errors
+
+If authentication fails, the connection will be immediately closed with one of these reasons:
+- `Missing API key (use ?api_key=kb_xxx)` - No API key provided
+- `Authentication failed: Invalid API key` - Key not found or invalid format
+- `Authentication failed: API key is inactive` - Key has been deactivated
+- `Authentication failed: API key has expired` - Key past expiration date
+- `Authentication failed: User account is inactive` - User account deactivated
 
 ---
 
@@ -24,7 +52,7 @@ The Kirby WebSocket API provides real-time streaming of comprehensive market dat
 ### Endpoint
 
 ```
-ws://localhost:8000/ws
+ws://localhost:8000/ws?api_key={your_api_key}
 ```
 
 ### Connection Limits
@@ -41,7 +69,10 @@ import asyncio
 import websockets
 
 async def connect():
-    async with websockets.connect("ws://localhost:8000/ws") as ws:
+    api_key = "kb_123456KEY"  # Replace with your API key
+    uri = f"ws://localhost:8000/ws?api_key={api_key}"
+
+    async with websockets.connect(uri) as ws:
         print("Connected!")
         # Your code here
 
@@ -50,7 +81,8 @@ asyncio.run(connect())
 
 **JavaScript:**
 ```javascript
-const ws = new WebSocket("ws://localhost:8000/ws");
+const apiKey = "kb_123456KEY";  // Replace with your API key
+const ws = new WebSocket(`ws://localhost:8000/ws?api_key=${apiKey}`);
 
 ws.onopen = () => {
     console.log("Connected!");
@@ -59,6 +91,14 @@ ws.onopen = () => {
 ws.onmessage = (event) => {
     const data = JSON.parse(event.data);
     console.log("Received:", data);
+};
+
+ws.onerror = (error) => {
+    console.error("WebSocket error:", error);
+};
+
+ws.onclose = (event) => {
+    console.log("Connection closed:", event.code, event.reason);
 };
 ```
 
@@ -368,7 +408,8 @@ import json
 import websockets
 
 async def stream_market_data():
-    uri = "ws://localhost:8000/ws"
+    api_key = "kb_123456KEY"  # Replace with your API key
+    uri = f"ws://localhost:8000/ws?api_key={api_key}"
 
     async with websockets.connect(uri) as websocket:
         # Subscribe to BTC/USD perpetuals with 10 historical candles
@@ -412,7 +453,8 @@ asyncio.run(stream_market_data())
 See: [docs/examples/websocket_client.html](../examples/websocket_client.html)
 
 ```javascript
-const ws = new WebSocket("ws://localhost:8000/ws");
+const apiKey = "kb_123456KEY";  // Replace with your API key
+const ws = new WebSocket(`ws://localhost:8000/ws?api_key=${apiKey}`);
 
 ws.onopen = () => {
     console.log("Connected!");

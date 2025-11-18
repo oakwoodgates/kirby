@@ -1,10 +1,13 @@
 """
 API router for starlisting endpoints.
+
+All endpoints require authentication via API key (X-API-Key header).
 """
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_db_session
+from src.api.middleware.auth import get_current_user, AuthenticatedUser
 from src.config.loader import ConfigLoader
 from src.schemas.starlistings import StarlistingListResponse, StarlistingResponse
 
@@ -20,6 +23,7 @@ router = APIRouter(prefix="/starlistings", tags=["starlistings"])
 async def list_starlistings(
     active_only: bool = True,
     session: AsyncSession = Depends(get_db_session),
+    current_user: AuthenticatedUser = Depends(get_current_user),
 ) -> StarlistingListResponse:
     """
     List all configured starlistings.

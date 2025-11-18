@@ -3,6 +3,8 @@
 This router provides a WebSocket endpoint (/ws) that allows clients to subscribe to
 real-time candle updates. Clients can subscribe to multiple starlistings and optionally
 request historical data on connection.
+
+Authentication is required via API key passed as query parameter: ws://host/ws?api_key=kb_xxx
 """
 
 import json
@@ -15,8 +17,9 @@ from sqlalchemy import select
 from structlog import get_logger
 
 from src.api.dependencies import get_db_session
+from src.api.middleware.auth import validate_api_key
 from src.api.websocket_manager import ConnectionManager
-from src.db.models import Candle, Coin, Exchange, Interval, MarketType, QuoteCurrency, Starlisting
+from src.db.models import APIKey, Candle, Coin, Exchange, Interval, MarketType, QuoteCurrency, Starlisting, User
 from src.schemas.candles import CandleResponse
 from src.schemas.websocket import (
     WebSocketErrorMessage,
@@ -51,7 +54,12 @@ def set_connection_manager(manager: ConnectionManager) -> None:
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """WebSocket endpoint for real-time candle streaming.
 
+    Authentication:
+    - Required: API key as query parameter (e.g., ws://host/ws?api_key=kb_xxx)
+    - Connection will be rejected if API key is invalid, expired, or inactive
+
     Protocol:
+    - Client connects: ws://host/ws?api_key=kb_xxx
     - Client sends: {"action": "subscribe", "starlisting_ids": [1, 2, 3], "history": 100}
     - Server sends: {"type": "success", "message": "Subscribed to 3 starlistings"}
     - Server sends: {"type": "historical", "starlisting_id": 1, "data": [...]}
@@ -77,6 +85,33 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         logger.warning("websocket_connection_rejected_capacity")
         return
 
+    # Authenticate via API key from query parameter
+    api_key = websocket.query_params.get("api_key")
+    if not api_key:
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Missing API key (use ?api_key=kb_xxx)",
+        )
+        logger.warning("websocket_connection_rejected_no_api_key")
+        return
+
+    # Validate API key
+    user: User | None = None
+    api_key_obj: APIKey | None = None
+
+    async for session in get_db_session():
+        try:
+            user, api_key_obj = await validate_api_key(session, api_key)
+        except Exception as e:
+            await websocket.close(
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason=f"Authentication failed: {str(e)}",
+            )
+            logger.warning("websocket_connection_rejected_invalid_api_key", error=str(e))
+            return
+        finally:
+            await session.close()
+
     # Accept connection
     accepted = await connection_manager.connect(websocket)
     if not accepted:
@@ -85,6 +120,13 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             reason="Connection rejected",
         )
         return
+
+    logger.info(
+        "websocket_authenticated_connection",
+        user_id=user.id,
+        username=user.username,
+        api_key_id=api_key_obj.id,
+    )
 
     try:
         # Main message loop
