@@ -121,21 +121,26 @@ echo ""
 
 # Show per-starlisting gaps
 echo -e "${YELLOW}Data Gaps by Starlisting:${NC}"
-echo "$DOWNTIME_JSON" | docker compose exec -T collector python -c "
+echo "$DOWNTIME_JSON" | python -c "
 import sys
 import json
 
-data = json.load(sys.stdin)
-for star in data.get('starlistings', []):
-    candle_gap = star['candles']['gap_hours']
-    funding_gap = star['funding_rates']['gap_hours']
-    oi_gap = star['open_interest']['gap_hours']
+try:
+    data = json.loads(sys.stdin.read())
+    for star in data.get('starlistings', []):
+        candle_gap = star['candles']['gap_hours']
+        funding_gap = star['funding_rates']['gap_hours']
+        oi_gap = star['open_interest']['gap_hours']
 
-    # Only show if gap > 0.1 hours (6 minutes)
-    if candle_gap > 0.1 or funding_gap > 0.1 or oi_gap > 0.1:
-        print(f\"  {star['coin']}/{star['quote']} {star['interval']}:\")
-        print(f\"    Candles: {candle_gap:.2f}h, Funding: {funding_gap:.2f}h, OI: {oi_gap:.2f}h\")
-"
+        # Only show if gap > 0.1 hours (6 minutes)
+        if candle_gap > 0.1 or funding_gap > 0.1 or oi_gap > 0.1:
+            print(f\"  {star['coin']}/{star['quote']} {star['interval']}:\")
+            print(f\"    Candles: {candle_gap:.2f}h, Funding: {funding_gap:.2f}h, OI: {oi_gap:.2f}h\")
+except json.JSONDecodeError as e:
+    print(f\"  Error parsing JSON: {e}\", file=sys.stderr)
+except Exception as e:
+    print(f\"  Error: {e}\", file=sys.stderr)
+" 2>/dev/null || echo "  (Could not parse gap details)"
 
 echo ""
 
@@ -149,8 +154,8 @@ elif [ "$MAX_GAP_HOURS" = "0" ] || [ -z "$MAX_GAP_HOURS" ]; then
     echo "Nothing to backfill. Exiting."
     exit 0
 else
-    # Convert gap hours to days (round up)
-    BACKFILL_DAYS=$(echo "scale=0; ($MAX_GAP_HOURS + 23) / 24" | bc)
+    # Convert gap hours to days (round up) - use Python for cross-platform compatibility
+    BACKFILL_DAYS=$(python -c "import math; print(math.ceil(($MAX_GAP_HOURS + 23) / 24))" 2>/dev/null || echo "1")
     echo -e "${YELLOW}Auto-detected gap:${NC} ${MAX_GAP_HOURS} hours"
     echo -e "Will backfill last ${BACKFILL_DAYS} days to ensure complete recovery"
 fi
