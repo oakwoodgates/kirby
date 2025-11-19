@@ -776,7 +776,7 @@ When scaling beyond single server:
 
 ## Support
 
-**Issues**: https://github.com/YOUR_USERNAME/kirby/issues
+**Issues**: https://github.com/oakwoodgates/kirby/issues
 
 **Documentation**: See [README.md](../README.md) and [CLAUDE.md](../CLAUDE.md)
 

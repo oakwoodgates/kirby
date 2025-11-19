@@ -96,7 +96,7 @@ For **real-time streaming** data, connect to the WebSocket endpoint:
 - Historical data on connection (optional)
 - Automatic heartbeat/keepalive
 
-**📖 Full Documentation**: See [WebSocket API Documentation](https://github.com/YOUR_USERNAME/kirby/blob/main/docs/WEBSOCKET_API.md)
+**📖 Full Documentation**: See [WebSocket API Documentation](https://github.com/oakwoodgates/kirby/blob/main/docs/WEBSOCKET_API.md)
 
 ---
 
@@ -186,6 +186,6 @@ async def root():
         "documentation": {
             "swagger": "/docs" if settings.is_development else None,
             "redoc": "/redoc" if settings.is_development else None,
-            "websocket": "https://github.com/YOUR_USERNAME/kirby/blob/main/docs/WEBSOCKET_API.md",
+            "websocket": "https://github.com/oakwoodgates/kirby/blob/main/docs/WEBSOCKET_API.md",
         },
     }

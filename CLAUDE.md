@@ -735,7 +735,7 @@ docker compose exec collector python -m scripts.sync_config
 
 ```bash
 # 1. Clone and configure
-git clone https://github.com/YOUR_USERNAME/kirby.git
+git clone https://github.com/oakwoodgates/kirby.git
 cd kirby
 cp .env.example .env
 nano .env  # Set POSTGRES_PASSWORD and TRAINING_DATABASE_URL password
