@@ -978,6 +978,348 @@ docker compose logs -f collector
 - If collector or API shows errors, check database migrations ran successfully
 - Training database is now included in all deployments automatically
 
+### Step 7.7: Fast Updates and Downtime Recovery (NEW!)
+
+For production environments, full deployments via `deploy.sh` can be slow (5-10 minutes). Use these optimized scripts for faster updates and automatic data recovery.
+
+#### update.sh - Fast Updates (30-60 seconds)
+
+The `update.sh` script provides intelligent, fast updates by only rebuilding/migrating what changed.
+
+**When to Use:**
+- ✅ Code changes (Python files, dependencies)
+- ✅ Configuration updates (YAML files)
+- ✅ Database schema changes (new migrations)
+- ✅ Quick restarts after fixes
+
+**When NOT to Use:**
+- ❌ Initial deployment (use `deploy.sh` instead)
+- ❌ Major infrastructure changes (use `deploy.sh` instead)
+
+**Speed Comparison:**
+| Scenario | deploy.sh | update.sh | Improvement |
+|----------|-----------|-----------|-------------|
+| Code-only update | 5-10 min | 30-60 sec | **90% faster** |
+| With new migrations | 5-10 min | 1-2 min | 70% faster |
+| Simple restart | 5-10 min | 10-20 sec | **95% faster** |
+
+**Basic Usage:**
+
+```bash
+cd ~/kirby
+
+# Make executable (first time only)
+chmod +x update.sh
+
+# Auto-detect changes and update (prompts for backfill if gaps detected)
+./update.sh
+
+# Automatically backfill detected gaps without prompting
+./update.sh --auto-backfill
+
+# Skip downtime detection and backfill entirely
+./update.sh --skip-backfill
+
+# Force rebuild even if no code changes detected
+./update.sh --force-build
+
+# Force migration check
+./update.sh --force-migrate
+
+# Skip build (only config/docs changed)
+./update.sh --skip-build
+```
+
+**Example Output:**
+
+```bash
+╔════════════════════════════════════════════════════════════╗
+║         Kirby Fast Update Script                          ║
+╚════════════════════════════════════════════════════════════╝
+
+✓ Docker is running
+✓ Services are running
+
+[1/6] Checking for changes...
+✓ Git pull successful
+⚠ Code changes detected
+
+[2/6] Building Docker images (code changed)...
+✓ Docker images built (45s)
+
+[3/6] Checking for database migrations...
+✓ Database is up to date (revision: abc123)
+
+[4/6] Restarting services...
+✓ Services restarted (8s)
+
+[5/6] Verifying services...
+✓ Database is healthy
+✓ API is healthy
+✓ Collector is running
+
+[6/7] Update summary...
+
+╔════════════════════════════════════════════════════════════╗
+║             Update Completed Successfully                 ║
+╚════════════════════════════════════════════════════════════╝
+
+  Total time: 58s
+
+  Changes applied:
+    ✓ Docker images rebuilt
+    ○ No new migrations
+    ✓ Services restarted
+
+Next Steps:
+  • Check logs: docker compose logs -f collector api
+  • Check health: curl http://localhost:8000/health
+
+[7/7] Checking for data gaps...
+
+⚠ Data gap detected: 0.3 hours (18 minutes)
+
+  Data recovery available:
+    ✓ Candles (OHLCV) - 100% recoverable
+    ⚠ Funding rates - 40% recoverable (rate + premium only)
+    ✗ Open interest - NOT recoverable (permanently lost)
+
+Run backfill now? [y/N]: y
+
+[Running backfill_downtime.sh...]
+✓ Data backfill completed
+```
+
+**What the Script Does:**
+
+1. **Smart Change Detection**: Uses `git diff` to detect what changed
+2. **Conditional Building**: Only rebuilds Docker images if code changed
+3. **Migration Check**: Only runs migrations if new ones exist
+4. **Quick Restart**: Uses `docker compose restart` (not `down/up`)
+5. **Health Verification**: Confirms services started correctly
+6. **Downtime Detection**: Automatically checks for data gaps after restart
+7. **Optional Auto-Backfill**: Prompts to backfill or auto-backfills with `--auto-backfill`
+8. **Minimal Downtime**: Typically 10-20 seconds of collector downtime
+
+#### backfill_downtime.sh - Automatic Data Recovery
+
+When the collector is down (during updates or outages), some data is missed. This script automatically detects gaps and recovers what's possible.
+
+**Data Recovery Levels:**
+
+| Data Type | Recovery | Tool Used | Time Range |
+|-----------|----------|-----------|------------|
+| **Candles (OHLCV)** | ✅ 100% | CCXT API | ~2 years back |
+| **Funding Rates** | ⚠️ 40% | Hyperliquid API | ~1 year back |
+| **Funding Prices** | ❌ LOST | N/A | Not available |
+| **Open Interest** | ❌ LOST | N/A | Not available |
+
+**Important**: Open Interest (OI) data has NO historical API and is permanently lost during downtime. This makes minimizing collector downtime critical!
+
+**Basic Usage:**
+
+```bash
+cd ~/kirby
+
+# Make executable (first time only)
+chmod +x backfill_downtime.sh
+
+# Auto-detect gaps and backfill
+./backfill_downtime.sh
+
+# Dry run (show what would be backfilled)
+./backfill_downtime.sh --dry-run
+
+# Manual: backfill last 7 days
+./backfill_downtime.sh --days 7
+
+# Manual: backfill specific coin only
+./backfill_downtime.sh --coin BTC --days 1
+```
+
+**Example Output:**
+
+```bash
+╔════════════════════════════════════════════════════════════╗
+║         Kirby Downtime Backfill Script                    ║
+╚════════════════════════════════════════════════════════════╝
+
+✓ Docker is running
+✓ Services are running
+
+[1/4] Detecting data gaps...
+
+  Current time: 2025-11-18 15:30:00 UTC
+  Active starlistings: 8
+  Maximum gap: 2.5 hours (150 minutes)
+
+Data Gaps by Starlisting:
+  BTC/USD 1m:
+    Candles: 2.50h, Funding: 2.50h, OI: 2.50h
+  BTC/USD 15m:
+    Candles: 2.50h, Funding: 2.50h, OI: 2.50h
+
+Auto-detected gap: 2.5 hours
+Will backfill last 1 days to ensure complete recovery
+
+[2/4] Backfilling candle data (100% recoverable)...
+  Backfilling all active starlistings...
+  Processing BTC/USD perps 1m...
+  Backfilled 150 candles
+  Processing BTC/USD perps 15m...
+  Backfilled 10 candles
+✓ Candles backfilled (45s)
+
+[3/4] Backfilling funding rates (partially recoverable)...
+⚠ Note: Historical funding API only provides:
+    ✓ funding_rate
+    ✓ premium
+    ✗ mark_price (LOST)
+    ✗ index_price (LOST)
+    ✗ oracle_price (LOST)
+    ✗ mid_price (LOST)
+    ✗ next_funding_time (LOST)
+
+  Backfilling all active coins...
+✓ Funding rates backfilled (12s)
+
+[4/4] Generating data loss report...
+
+╔════════════════════════════════════════════════════════════╗
+║              Data Recovery Summary                        ║
+╚════════════════════════════════════════════════════════════╝
+
+✓ FULLY RECOVERED:
+  • Candles (OHLCV data for all intervals)
+    - 100% recovery via CCXT API
+    - All intervals: 1m, 15m, 4h, 1d
+
+⚠ PARTIALLY RECOVERED:
+  • Funding Rates (basic fields only)
+    - ✓ funding_rate
+    - ✓ premium
+    - ✗ mark_price (NOT available historically)
+    - ✗ index_price (NOT available historically)
+    - Recovery: ~40% (2 of 7 fields)
+
+✗ PERMANENTLY LOST:
+  • Open Interest (no historical API available)
+    - ✗ open_interest
+    - ✗ notional_value
+    - ✗ day_base_volume
+    - ✗ day_notional_volume
+    - Recovery: 0% (no historical data)
+
+Affected Time Range:
+  Start: 2025-11-18 13:00:00 UTC
+  End:   2025-11-18 15:30:00 UTC
+  Duration: 2.5 hours (1 days backfilled)
+
+╔════════════════════════════════════════════════════════════╗
+║          Backfill Completed Successfully                  ║
+╚════════════════════════════════════════════════════════════╝
+
+  Total time: 62s
+```
+
+**What the Script Does:**
+
+1. **Detect Gaps**: Queries database for last timestamp per table
+2. **Calculate Downtime**: Compares to current time to find gaps
+3. **Backfill Candles**: 100% recovery via CCXT (all intervals)
+4. **Backfill Funding**: Partial recovery via Hyperliquid API (rate + premium only)
+5. **Report Losses**: Shows what data was lost permanently (OI, funding prices)
+6. **Verify Results**: Confirms recovered data counts
+
+#### Best Practices for Production Updates
+
+**Recommended Update Workflow:**
+
+**Option 1: Interactive (Default) - Prompts for backfill**
+```bash
+cd ~/kirby
+git pull origin main
+./update.sh
+# Script will detect gaps and prompt: "Run backfill now? [y/N]"
+# Answer 'y' to backfill or 'N' to skip
+```
+
+**Option 2: Fully Automatic - No prompts**
+```bash
+cd ~/kirby
+git pull origin main
+./update.sh --auto-backfill
+# Automatically detects and backfills gaps without prompting
+```
+
+**Option 3: Manual Control - Skip auto-detection**
+```bash
+# 1. Pull latest code
+cd ~/kirby
+git pull origin main
+
+# 2. Fast update (skip automatic backfill detection)
+./update.sh --skip-backfill
+
+# 3. Monitor logs for 1-2 minutes
+docker compose logs -f collector
+
+# 4. Manually backfill if needed
+./backfill_downtime.sh
+
+# 5. Verify everything is healthy
+curl http://localhost:8000/health
+docker compose ps
+```
+
+**Minimize Data Loss:**
+
+1. **Use update.sh instead of deploy.sh** for routine updates (faster = less downtime)
+2. **Run backfill_downtime.sh immediately** after any restart
+3. **Monitor collector uptime** - OI data is NOT recoverable
+4. **Schedule updates during low-volatility periods** if possible
+5. **Consider alerts** for collector downtime (future enhancement)
+
+**When to Use Each Script:**
+
+| Scenario | Script to Use | Downtime | Notes |
+|----------|--------------|----------|-------|
+| Initial deployment | `deploy.sh` | 30-60s | First time setup |
+| Code updates | `update.sh` | 10-20s | Fastest option |
+| Config changes | `update.sh --skip-build` | 10s | No rebuild needed |
+| Schema changes | `update.sh` | 1-2min | Runs migrations |
+| Major changes | `deploy.sh` | 30-60s | Full verification |
+| After downtime | `backfill_downtime.sh` | 0s | Runs alongside live collector |
+
+**Troubleshooting:**
+
+**Issue**: update.sh says "Services are not running"
+```bash
+# Solution: Use deploy.sh for initial deployment
+./deploy.sh
+```
+
+**Issue**: Backfill reports no gaps but data is missing
+```bash
+# Check if collector is actually running
+docker compose logs collector | tail -50
+
+# Manually run backfill for last 24 hours
+./backfill_downtime.sh --days 1
+```
+
+**Issue**: Update failed mid-way
+```bash
+# Rollback to previous commit
+git log --oneline -5
+git checkout <previous-commit-hash>
+./deploy.sh  # Full redeploy
+
+# Then return to latest
+git checkout main
+./update.sh
+```
+
 ---
 
 ## 8. NordVPN Setup for Training Data Backfills (Optional)
