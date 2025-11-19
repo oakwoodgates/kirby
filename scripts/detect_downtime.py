@@ -20,10 +20,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
 
-from src.config.settings import get_settings
-from src.db.connection import get_async_session_maker
+from src.config.settings import settings
 from src.db.models import Starlisting, Candle, FundingRate, OpenInterest, Exchange, Coin, QuoteCurrency, MarketType, Interval
 
 
@@ -115,12 +115,13 @@ async def detect_downtime() -> dict[str, Any]:
             }
         }
     """
-    settings = get_settings()
-    session_maker = get_async_session_maker(settings.database_url_str)
+    # Create database engine and session
+    engine = create_async_engine(settings.database_url_str, echo=False)
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     current_time = datetime.now(timezone.utc)
 
-    async with session_maker() as session:
+    async with async_session() as session:
         # Get all active starlistings
         starlistings = await get_active_starlistings(session)
 
@@ -185,6 +186,9 @@ async def detect_downtime() -> dict[str, Any]:
                     "has_data": oi_last is not None,
                 },
             })
+
+    # Close the engine
+    await engine.dispose()
 
     return {
         "current_time": current_time.isoformat(),

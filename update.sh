@@ -265,8 +265,9 @@ else
 fi
 
 # Check collector (look for recent logs)
-COLLECTOR_RUNNING=$(docker compose ps collector | grep -c "running" || echo "0")
-if [ "$COLLECTOR_RUNNING" -gt 0 ]; then
+COLLECTOR_RUNNING=$(docker compose ps collector | grep -c "running" 2>/dev/null || echo "0")
+COLLECTOR_RUNNING=$(echo "$COLLECTOR_RUNNING" | tr -d '\n\r' | head -c 1)
+if [ "$COLLECTOR_RUNNING" -gt 0 2>/dev/null ]; then
     echo -e "${GREEN}✓${NC} Collector is running"
 else
     echo -e "${RED}✗${NC} Collector is not running"
