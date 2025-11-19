@@ -271,7 +271,7 @@ Response to client ping.
 }
 ```
 
-#### 5. Historical Data
+#### 5. Historical Candle Data
 
 Historical candles sent after subscription (if `history > 0`).
 
@@ -290,7 +290,66 @@ Historical candles sent after subscription (if `history > 0`).
 }
 ```
 
-#### 6. Candle Update
+#### 6. Historical Funding Rate Data
+
+Historical funding rates sent after subscription (if `history > 0` and data available).
+
+```json
+{
+    "type": "historical_funding",
+    "starlisting_id": 1,
+    "exchange": "hyperliquid",
+    "coin": "BTC",
+    "quote": "USD",
+    "trading_pair": "BTC/USD",
+    "market_type": "perps",
+    "count": 100,
+    "data": [
+        {
+            "time": "2025-11-17T10:00:00Z",
+            "funding_rate": "0.000123456789012345",
+            "premium": "0.000050000000000000",
+            "mark_price": "67650.750000000000000000",
+            "index_price": "67645.500000000000000000",
+            "oracle_price": "67648.000000000000000000",
+            "mid_price": "67649.250000000000000000",
+            "next_funding_time": "2025-11-17T18:00:00Z"
+        }
+    ]
+}
+```
+
+**Note:** Funding rate data is only available for perpetual markets. Some fields may be `null` for historical data.
+
+#### 7. Historical Open Interest Data
+
+Historical open interest sent after subscription (if `history > 0` and data available).
+
+```json
+{
+    "type": "historical_oi",
+    "starlisting_id": 1,
+    "exchange": "hyperliquid",
+    "coin": "BTC",
+    "quote": "USD",
+    "trading_pair": "BTC/USD",
+    "market_type": "perps",
+    "count": 100,
+    "data": [
+        {
+            "time": "2025-11-17T10:00:00Z",
+            "open_interest": "125000.500000000000000000",
+            "notional_value": "8456789000.000000000000000000",
+            "day_base_volume": "50000.250000000000000000",
+            "day_notional_volume": "3378912500.000000000000000000"
+        }
+    ]
+}
+```
+
+**Note:** Open interest data is only available for perpetual/futures markets, not spot markets.
+
+#### 8. Candle Update
 
 Real-time candle update (sent when new candle is created/updated).
 
@@ -318,7 +377,7 @@ Real-time candle update (sent when new candle is created/updated).
 
 **Note:** All price and volume fields are returned with **18-decimal precision** to support coins of any price range (from $0.000000000000000001 to $999,999,999,999). The trailing zeros are preserved in the string format.
 
-#### 7. Funding Rate Update
+#### 9. Funding Rate Update
 
 Real-time funding rate update (sent when new funding rate is recorded).
 
@@ -359,7 +418,7 @@ Real-time funding rate update (sent when new funding rate is recorded).
 - Historical funding data may only include `funding_rate` and `premium` (prices are null)
 - Real-time data includes all fields when available from the exchange
 
-#### 8. Open Interest Update
+#### 10. Open Interest Update
 
 Real-time open interest update (sent when new OI data is recorded).
 

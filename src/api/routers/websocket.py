@@ -19,11 +19,26 @@ from structlog import get_logger
 from src.api.dependencies import get_db_session
 from src.api.middleware.auth import validate_api_key
 from src.api.websocket_manager import ConnectionManager
-from src.db.models import APIKey, Candle, Coin, Exchange, Interval, MarketType, QuoteCurrency, Starlisting, User
+from src.db.models import (
+    APIKey,
+    Candle,
+    Coin,
+    Exchange,
+    FundingRate,
+    Interval,
+    MarketType,
+    OpenInterest,
+    QuoteCurrency,
+    Starlisting,
+    User,
+)
 from src.schemas.candles import CandleResponse
+from src.schemas.funding import FundingRateResponse, OpenInterestResponse
 from src.schemas.websocket import (
     WebSocketErrorMessage,
     WebSocketHistoricalDataMessage,
+    WebSocketHistoricalFundingMessage,
+    WebSocketHistoricalOIMessage,
     WebSocketPingMessage,
     WebSocketPongMessage,
     WebSocketSubscribeMessage,
@@ -290,6 +305,217 @@ async def handle_ping(websocket: WebSocket, message: Dict[str, Any]) -> None:
     await connection_manager.send_to_client(websocket, pong_msg.model_dump())
 
 
+async def fetch_historical_candles_batch(
+    session,
+    starlisting_ids: list[int],
+    limit: int,
+) -> list:
+    """Fetch historical candles for multiple starlistings in a single batch query.
+
+    Uses window function to get last N candles per starlisting, then joins with
+    metadata tables. More efficient than N separate queries.
+
+    Args:
+        session: Database session
+        starlisting_ids: List of starlisting IDs to fetch
+        limit: Number of candles per starlisting
+
+    Returns:
+        List of rows with candle data and metadata
+    """
+    from sqlalchemy import func
+    from sqlalchemy.sql import label
+
+    # Subquery: Use row_number() to get last N candles per starlisting
+    subq = (
+        select(
+            Candle.starlisting_id,
+            Candle.time,
+            Candle.open,
+            Candle.high,
+            Candle.low,
+            Candle.close,
+            Candle.volume,
+            Candle.num_trades,
+            func.row_number()
+            .over(
+                partition_by=Candle.starlisting_id,
+                order_by=Candle.time.desc()
+            )
+            .label("row_num"),
+        )
+        .where(Candle.starlisting_id.in_(starlisting_ids))
+        .subquery()
+    )
+
+    # Main query: Join with metadata tables
+    stmt = (
+        select(
+            subq.c.time,
+            subq.c.open,
+            subq.c.high,
+            subq.c.low,
+            subq.c.close,
+            subq.c.volume,
+            subq.c.num_trades,
+            subq.c.starlisting_id,
+            Exchange.name.label("exchange"),
+            Coin.symbol.label("coin"),
+            QuoteCurrency.symbol.label("quote"),
+            MarketType.name.label("market_type"),
+            Interval.name.label("interval"),
+        )
+        .select_from(subq)
+        .join(Starlisting, subq.c.starlisting_id == Starlisting.id)
+        .join(Exchange, Starlisting.exchange_id == Exchange.id)
+        .join(Coin, Starlisting.coin_id == Coin.id)
+        .join(QuoteCurrency, Starlisting.quote_currency_id == QuoteCurrency.id)
+        .join(MarketType, Starlisting.market_type_id == MarketType.id)
+        .join(Interval, Starlisting.interval_id == Interval.id)
+        .where(subq.c.row_num <= limit)
+        .order_by(subq.c.starlisting_id, subq.c.time)
+    )
+
+    result = await session.execute(stmt)
+    return result.all()
+
+
+async def fetch_historical_funding_batch(
+    session,
+    starlisting_ids: list[int],
+    limit: int,
+) -> list:
+    """Fetch historical funding rates for multiple starlistings in a single batch query.
+
+    Args:
+        session: Database session
+        starlisting_ids: List of starlisting IDs to fetch
+        limit: Number of funding rate snapshots per starlisting
+
+    Returns:
+        List of rows with funding rate data and metadata
+    """
+    from sqlalchemy import func
+
+    # Subquery: Use row_number() to get last N funding rates per starlisting
+    subq = (
+        select(
+            FundingRate.starlisting_id,
+            FundingRate.time,
+            FundingRate.funding_rate,
+            FundingRate.premium,
+            FundingRate.mark_price,
+            FundingRate.index_price,
+            FundingRate.oracle_price,
+            FundingRate.mid_price,
+            FundingRate.next_funding_time,
+            func.row_number()
+            .over(
+                partition_by=FundingRate.starlisting_id,
+                order_by=FundingRate.time.desc()
+            )
+            .label("row_num"),
+        )
+        .where(FundingRate.starlisting_id.in_(starlisting_ids))
+        .subquery()
+    )
+
+    # Main query: Join with metadata tables
+    stmt = (
+        select(
+            subq.c.time,
+            subq.c.funding_rate,
+            subq.c.premium,
+            subq.c.mark_price,
+            subq.c.index_price,
+            subq.c.oracle_price,
+            subq.c.mid_price,
+            subq.c.next_funding_time,
+            subq.c.starlisting_id,
+            Exchange.name.label("exchange"),
+            Coin.symbol.label("coin"),
+            QuoteCurrency.symbol.label("quote"),
+            MarketType.name.label("market_type"),
+        )
+        .select_from(subq)
+        .join(Starlisting, subq.c.starlisting_id == Starlisting.id)
+        .join(Exchange, Starlisting.exchange_id == Exchange.id)
+        .join(Coin, Starlisting.coin_id == Coin.id)
+        .join(QuoteCurrency, Starlisting.quote_currency_id == QuoteCurrency.id)
+        .join(MarketType, Starlisting.market_type_id == MarketType.id)
+        .where(subq.c.row_num <= limit)
+        .order_by(subq.c.starlisting_id, subq.c.time)
+    )
+
+    result = await session.execute(stmt)
+    return result.all()
+
+
+async def fetch_historical_oi_batch(
+    session,
+    starlisting_ids: list[int],
+    limit: int,
+) -> list:
+    """Fetch historical open interest for multiple starlistings in a single batch query.
+
+    Args:
+        session: Database session
+        starlisting_ids: List of starlisting IDs to fetch
+        limit: Number of OI snapshots per starlisting
+
+    Returns:
+        List of rows with OI data and metadata
+    """
+    from sqlalchemy import func
+
+    # Subquery: Use row_number() to get last N OI snapshots per starlisting
+    subq = (
+        select(
+            OpenInterest.starlisting_id,
+            OpenInterest.time,
+            OpenInterest.open_interest,
+            OpenInterest.notional_value,
+            OpenInterest.day_base_volume,
+            OpenInterest.day_notional_volume,
+            func.row_number()
+            .over(
+                partition_by=OpenInterest.starlisting_id,
+                order_by=OpenInterest.time.desc()
+            )
+            .label("row_num"),
+        )
+        .where(OpenInterest.starlisting_id.in_(starlisting_ids))
+        .subquery()
+    )
+
+    # Main query: Join with metadata tables
+    stmt = (
+        select(
+            subq.c.time,
+            subq.c.open_interest,
+            subq.c.notional_value,
+            subq.c.day_base_volume,
+            subq.c.day_notional_volume,
+            subq.c.starlisting_id,
+            Exchange.name.label("exchange"),
+            Coin.symbol.label("coin"),
+            QuoteCurrency.symbol.label("quote"),
+            MarketType.name.label("market_type"),
+        )
+        .select_from(subq)
+        .join(Starlisting, subq.c.starlisting_id == Starlisting.id)
+        .join(Exchange, Starlisting.exchange_id == Exchange.id)
+        .join(Coin, Starlisting.coin_id == Coin.id)
+        .join(QuoteCurrency, Starlisting.quote_currency_id == QuoteCurrency.id)
+        .join(MarketType, Starlisting.market_type_id == MarketType.id)
+        .where(subq.c.row_num <= limit)
+        .order_by(subq.c.starlisting_id, subq.c.time)
+    )
+
+    result = await session.execute(stmt)
+    return result.all()
+
+
 async def send_error(websocket: WebSocket, message: str, code: str) -> None:
     """Send an error message to the client.
 
@@ -309,96 +535,166 @@ async def send_error(websocket: WebSocket, message: str, code: str) -> None:
 async def send_historical_data(
     websocket: WebSocket, starlisting_ids: list[int], limit: int
 ) -> None:
-    """Query and send historical candle data for subscribed starlistings.
+    """Query and send historical data (candles, funding, OI) for subscribed starlistings.
+
+    Uses batch queries for performance - fetches all starlistings in 3 queries total
+    (one per data type) instead of N*3 queries.
 
     Args:
         websocket: The WebSocket connection
         starlisting_ids: List of starlisting IDs to fetch history for
-        limit: Number of historical candles to fetch
+        limit: Number of historical records to fetch per starlisting
     """
+    from collections import defaultdict
+
     async for session in get_db_session():
         try:
+            # Batch query 1: Fetch candles for all starlistings
+            candle_rows = await fetch_historical_candles_batch(session, starlisting_ids, limit)
+
+            # Batch query 2: Fetch funding rates for all starlistings
+            funding_rows = await fetch_historical_funding_batch(session, starlisting_ids, limit)
+
+            # Batch query 3: Fetch open interest for all starlistings
+            oi_rows = await fetch_historical_oi_batch(session, starlisting_ids, limit)
+
+            # Group rows by starlisting_id
+            candles_by_id = defaultdict(list)
+            for row in candle_rows:
+                candles_by_id[row.starlisting_id].append(row)
+
+            funding_by_id = defaultdict(list)
+            for row in funding_rows:
+                funding_by_id[row.starlisting_id].append(row)
+
+            oi_by_id = defaultdict(list)
+            for row in oi_rows:
+                oi_by_id[row.starlisting_id].append(row)
+
+            # Send historical data for each starlisting
             for starlisting_id in starlisting_ids:
-                # Query historical candles with starlisting metadata
-                stmt = (
-                    select(
-                        Candle.time,
-                        Candle.open,
-                        Candle.high,
-                        Candle.low,
-                        Candle.close,
-                        Candle.volume,
-                        Candle.num_trades,
-                        Starlisting.id,
-                        Exchange.name.label("exchange"),
-                        Coin.symbol.label("coin"),
-                        QuoteCurrency.symbol.label("quote"),
-                        MarketType.name.label("market_type"),
-                        Interval.name.label("interval"),
+                # Send candle history if available
+                if starlisting_id in candles_by_id:
+                    rows = candles_by_id[starlisting_id]
+                    candles = [
+                        CandleResponse(
+                            time=row.time,
+                            open=row.open,
+                            high=row.high,
+                            low=row.low,
+                            close=row.close,
+                            volume=row.volume,
+                            num_trades=row.num_trades,
+                        )
+                        for row in rows
+                    ]
+
+                    first_row = rows[0]
+                    trading_pair = f"{first_row.coin}/{first_row.quote}"
+
+                    candle_msg = WebSocketHistoricalDataMessage(
+                        type="historical",
+                        starlisting_id=starlisting_id,
+                        exchange=first_row.exchange,
+                        coin=first_row.coin,
+                        quote=first_row.quote,
+                        trading_pair=trading_pair,
+                        market_type=first_row.market_type,
+                        interval=first_row.interval,
+                        count=len(candles),
+                        data=candles,
                     )
-                    .join(Starlisting, Candle.starlisting_id == Starlisting.id)
-                    .join(Exchange, Starlisting.exchange_id == Exchange.id)
-                    .join(Coin, Starlisting.coin_id == Coin.id)
-                    .join(QuoteCurrency, Starlisting.quote_currency_id == QuoteCurrency.id)
-                    .join(MarketType, Starlisting.market_type_id == MarketType.id)
-                    .join(Interval, Starlisting.interval_id == Interval.id)
-                    .where(Candle.starlisting_id == starlisting_id)
-                    .order_by(Candle.time.desc())
-                    .limit(limit)
-                )
 
-                result = await session.execute(stmt)
-                rows = result.all()
-
-                if not rows:
-                    # No historical data available
-                    continue
-
-                # Reverse to get chronological order (oldest first)
-                rows = list(reversed(rows))
-
-                # Build candle response objects
-                candles = []
-                for row in rows:
-                    candle = CandleResponse(
-                        time=row.time,
-                        open=row.open,
-                        high=row.high,
-                        low=row.low,
-                        close=row.close,
-                        volume=row.volume,
-                        num_trades=row.num_trades,
+                    await connection_manager.send_to_client(
+                        websocket, candle_msg.model_dump(mode="json")
                     )
-                    candles.append(candle)
 
-                # Get metadata from first row
-                first_row = rows[0]
-                trading_pair = f"{first_row.coin}/{first_row.quote}"
+                    logger.debug(
+                        "sent_historical_candles",
+                        starlisting_id=starlisting_id,
+                        count=len(candles),
+                    )
 
-                # Build historical data message
-                historical_msg = WebSocketHistoricalDataMessage(
-                    type="historical",
-                    starlisting_id=starlisting_id,
-                    exchange=first_row.exchange,
-                    coin=first_row.coin,
-                    quote=first_row.quote,
-                    trading_pair=trading_pair,
-                    market_type=first_row.market_type,
-                    interval=first_row.interval,
-                    count=len(candles),
-                    data=candles,
-                )
+                # Send funding rate history if available
+                if starlisting_id in funding_by_id:
+                    rows = funding_by_id[starlisting_id]
+                    funding_rates = [
+                        FundingRateResponse(
+                            time=row.time,
+                            funding_rate=row.funding_rate,
+                            premium=row.premium,
+                            mark_price=row.mark_price,
+                            index_price=row.index_price,
+                            oracle_price=row.oracle_price,
+                            mid_price=row.mid_price,
+                            next_funding_time=row.next_funding_time,
+                        )
+                        for row in rows
+                    ]
 
-                # Send to client
-                await connection_manager.send_to_client(
-                    websocket, historical_msg.model_dump(mode="json")
-                )
+                    first_row = rows[0]
+                    trading_pair = f"{first_row.coin}/{first_row.quote}"
 
-                logger.debug(
-                    "sent_historical_data",
-                    starlisting_id=starlisting_id,
-                    count=len(candles),
-                )
+                    funding_msg = WebSocketHistoricalFundingMessage(
+                        type="historical_funding",
+                        starlisting_id=starlisting_id,
+                        exchange=first_row.exchange,
+                        coin=first_row.coin,
+                        quote=first_row.quote,
+                        trading_pair=trading_pair,
+                        market_type=first_row.market_type,
+                        count=len(funding_rates),
+                        data=funding_rates,
+                    )
+
+                    await connection_manager.send_to_client(
+                        websocket, funding_msg.model_dump(mode="json")
+                    )
+
+                    logger.debug(
+                        "sent_historical_funding",
+                        starlisting_id=starlisting_id,
+                        count=len(funding_rates),
+                    )
+
+                # Send open interest history if available
+                if starlisting_id in oi_by_id:
+                    rows = oi_by_id[starlisting_id]
+                    oi_snapshots = [
+                        OpenInterestResponse(
+                            time=row.time,
+                            open_interest=row.open_interest,
+                            notional_value=row.notional_value,
+                            day_base_volume=row.day_base_volume,
+                            day_notional_volume=row.day_notional_volume,
+                        )
+                        for row in rows
+                    ]
+
+                    first_row = rows[0]
+                    trading_pair = f"{first_row.coin}/{first_row.quote}"
+
+                    oi_msg = WebSocketHistoricalOIMessage(
+                        type="historical_oi",
+                        starlisting_id=starlisting_id,
+                        exchange=first_row.exchange,
+                        coin=first_row.coin,
+                        quote=first_row.quote,
+                        trading_pair=trading_pair,
+                        market_type=first_row.market_type,
+                        count=len(oi_snapshots),
+                        data=oi_snapshots,
+                    )
+
+                    await connection_manager.send_to_client(
+                        websocket, oi_msg.model_dump(mode="json")
+                    )
+
+                    logger.debug(
+                        "sent_historical_oi",
+                        starlisting_id=starlisting_id,
+                        count=len(oi_snapshots),
+                    )
 
         except Exception as e:
             logger.error(

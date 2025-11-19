@@ -7,6 +7,7 @@ Usage:
     python scripts/test_websocket_client.py
 
 Environment Variables:
+    API_KEY: API key for authentication (required)
     WEBSOCKET_URL: WebSocket URL (default: ws://localhost:8000/ws)
     STARLISTING_IDS: Comma-separated starlisting IDs to subscribe to (default: 1,2)
     HISTORY: Number of historical candles to request (default: 10)
@@ -29,6 +30,7 @@ class KirbyWebSocketClient:
 
     def __init__(
         self,
+        api_key: str,
         url: str = "ws://localhost:8000/ws",
         starlisting_ids: list[int] = None,
         history: int = 10,
@@ -36,11 +38,14 @@ class KirbyWebSocketClient:
         """Initialize the WebSocket client.
 
         Args:
-            url: WebSocket URL
+            api_key: API key for authentication
+            url: WebSocket URL (base URL without query params)
             starlisting_ids: List of starlisting IDs to subscribe to
             history: Number of historical candles to request
         """
-        self.url = url
+        # Add API key as query parameter
+        separator = "&" if "?" in url else "?"
+        self.url = f"{url}{separator}api_key={api_key}"
         self.starlisting_ids = starlisting_ids or [1, 2]
         self.history = history
         self.websocket = None
@@ -49,7 +54,9 @@ class KirbyWebSocketClient:
     async def connect(self):
         """Connect to the WebSocket server."""
         try:
-            print(f"[{datetime.now()}] Connecting to {self.url}...")
+            # Hide API key in logs
+            display_url = self.url.split("api_key=")[0] + "api_key=***"
+            print(f"[{datetime.now()}] Connecting to {display_url}")
             self.websocket = await websockets.connect(self.url)
             self.running = True
             print(f"[{datetime.now()}] Connected successfully!")
@@ -155,7 +162,7 @@ class KirbyWebSocketClient:
                     print(f"\n🏓 PING: {data.get('timestamp')}")
 
                 elif msg_type == "historical":
-                    print(f"\n📊 HISTORICAL DATA:")
+                    print(f"\n📊 HISTORICAL CANDLE DATA:")
                     print(f"   Starlisting ID: {data.get('starlisting_id')}")
                     print(
                         f"   Trading Pair: {data.get('trading_pair')} ({data.get('exchange')})"
@@ -175,6 +182,48 @@ class KirbyWebSocketClient:
                         )
                         print(
                             f"   Last candle:  {last.get('time')} | Close: {last.get('close')}"
+                        )
+
+                elif msg_type == "historical_funding":
+                    print(f"\n💰 HISTORICAL FUNDING RATE DATA:")
+                    print(f"   Starlisting ID: {data.get('starlisting_id')}")
+                    print(
+                        f"   Trading Pair: {data.get('trading_pair')} ({data.get('exchange')})"
+                    )
+                    print(f"   Market Type: {data.get('market_type')}")
+                    print(f"   Snapshots: {data.get('count')}")
+
+                    # Print first and last snapshot
+                    snapshots = data.get("data", [])
+                    if snapshots:
+                        first = snapshots[0]
+                        last = snapshots[-1]
+                        print(
+                            f"   First snapshot: {first.get('time')} | Rate: {first.get('funding_rate')}"
+                        )
+                        print(
+                            f"   Last snapshot:  {last.get('time')} | Rate: {last.get('funding_rate')}"
+                        )
+
+                elif msg_type == "historical_oi":
+                    print(f"\n📈 HISTORICAL OPEN INTEREST DATA:")
+                    print(f"   Starlisting ID: {data.get('starlisting_id')}")
+                    print(
+                        f"   Trading Pair: {data.get('trading_pair')} ({data.get('exchange')})"
+                    )
+                    print(f"   Market Type: {data.get('market_type')}")
+                    print(f"   Snapshots: {data.get('count')}")
+
+                    # Print first and last snapshot
+                    snapshots = data.get("data", [])
+                    if snapshots:
+                        first = snapshots[0]
+                        last = snapshots[-1]
+                        print(
+                            f"   First snapshot: {first.get('time')} | OI: {first.get('open_interest')}"
+                        )
+                        print(
+                            f"   Last snapshot:  {last.get('time')} | OI: {last.get('open_interest')}"
                         )
 
                 elif msg_type == "candle":
@@ -277,6 +326,14 @@ class KirbyWebSocketClient:
 async def main():
     """Main function."""
     # Get configuration from environment variables
+    api_key = os.getenv("API_KEY")
+    if not api_key:
+        print("ERROR: API_KEY environment variable is required")
+        print("\nUsage:")
+        print('  export API_KEY="kb_your_api_key_here"')
+        print("  python scripts/test_websocket_client.py")
+        sys.exit(1)
+
     url = os.getenv("WEBSOCKET_URL", "ws://localhost:8000/ws")
     starlisting_ids_str = os.getenv("STARLISTING_IDS", "1,2")
     history = int(os.getenv("HISTORY", "10"))
@@ -288,6 +345,7 @@ async def main():
     print("Kirby WebSocket Test Client")
     print("=" * 80)
     print(f"WebSocket URL: {url}")
+    print(f"API Key: {api_key[:10]}... (hidden)")
     print(f"Starlisting IDs: {starlisting_ids}")
     print(f"Historical candles: {history}")
     print("=" * 80)
@@ -295,6 +353,7 @@ async def main():
 
     # Create and run client
     client = KirbyWebSocketClient(
+        api_key=api_key,
         url=url,
         starlisting_ids=starlisting_ids,
         history=history,

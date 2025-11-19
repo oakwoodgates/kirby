@@ -9,6 +9,7 @@ from typing import Any, Dict, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.schemas.candles import CandleResponse
+from src.schemas.funding import FundingRateResponse, OpenInterestResponse
 
 
 class WebSocketSubscribeMessage(BaseModel):
@@ -311,3 +312,108 @@ class WebSocketHistoricalDataMessage(BaseModel):
     interval: str = Field(..., description="Time interval")
     count: int = Field(..., description="Number of candles in data")
     data: list[CandleResponse] = Field(..., description="Historical candle data")
+
+
+class WebSocketHistoricalFundingMessage(BaseModel):
+    """Server message with historical funding rates for initial subscription.
+
+    Example:
+        {
+            "type": "historical_funding",
+            "starlisting_id": 1,
+            "exchange": "hyperliquid",
+            "coin": "BTC",
+            "quote": "USD",
+            "trading_pair": "BTC/USD",
+            "market_type": "perps",
+            "count": 100,
+            "data": [
+                {
+                    "time": "2025-11-17T09:00:00Z",
+                    "funding_rate": "0.000123",
+                    "premium": "0.5",
+                    "mark_price": "67500.00",
+                    ...
+                },
+                ...
+            ]
+        }
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "type": "historical_funding",
+                "starlisting_id": 1,
+                "exchange": "hyperliquid",
+                "coin": "BTC",
+                "quote": "USD",
+                "trading_pair": "BTC/USD",
+                "market_type": "perps",
+                "count": 100,
+                "data": [],
+            }
+        }
+    )
+
+    type: Literal["historical_funding"] = Field(..., description="Message type")
+    starlisting_id: int = Field(..., description="Starlisting ID")
+    exchange: str = Field(..., description="Exchange name")
+    coin: str = Field(..., description="Base asset symbol")
+    quote: str = Field(..., description="Quote asset symbol")
+    trading_pair: str = Field(..., description="Trading pair (e.g., BTC/USD)")
+    market_type: str = Field(..., description="Market type")
+    count: int = Field(..., description="Number of funding rate snapshots in data")
+    data: list[FundingRateResponse] = Field(..., description="Historical funding rate data")
+
+
+class WebSocketHistoricalOIMessage(BaseModel):
+    """Server message with historical open interest for initial subscription.
+
+    Example:
+        {
+            "type": "historical_oi",
+            "starlisting_id": 1,
+            "exchange": "hyperliquid",
+            "coin": "BTC",
+            "quote": "USD",
+            "trading_pair": "BTC/USD",
+            "market_type": "perps",
+            "count": 100,
+            "data": [
+                {
+                    "time": "2025-11-17T09:00:00Z",
+                    "open_interest": "125000.50",
+                    "notional_value": "8456789.00",
+                    ...
+                },
+                ...
+            ]
+        }
+    """
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "type": "historical_oi",
+                "starlisting_id": 1,
+                "exchange": "hyperliquid",
+                "coin": "BTC",
+                "quote": "USD",
+                "trading_pair": "BTC/USD",
+                "market_type": "perps",
+                "count": 100,
+                "data": [],
+            }
+        }
+    )
+
+    type: Literal["historical_oi"] = Field(..., description="Message type")
+    starlisting_id: int = Field(..., description="Starlisting ID")
+    exchange: str = Field(..., description="Exchange name")
+    coin: str = Field(..., description="Base asset symbol")
+    quote: str = Field(..., description="Quote asset symbol")
+    trading_pair: str = Field(..., description="Trading pair (e.g., BTC/USD)")
+    market_type: str = Field(..., description="Market type")
+    count: int = Field(..., description="Number of open interest snapshots in data")
+    data: list[OpenInterestResponse] = Field(..., description="Historical open interest data")
