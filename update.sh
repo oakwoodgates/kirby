@@ -105,7 +105,23 @@ echo ""
 # Step 1: Check for code changes
 #################################################################################
 
-echo -e "${BLUE}[1/6]${NC} Checking for changes..."
+echo -e "${BLUE}[1/7]${NC} Checking for changes..."
+
+# Auto-stash uncommitted changes before git pull
+STASHED=false
+if git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+    # Check if there are uncommitted changes
+    if ! git diff-index --quiet HEAD -- 2>/dev/null; then
+        echo -e "${YELLOW}⚠${NC}  Uncommitted changes detected - auto-stashing..."
+        if git stash push -m "Auto-stash by update.sh at $(date)" 2>&1; then
+            STASHED=true
+            echo -e "${GREEN}✓${NC} Changes stashed successfully"
+        else
+            echo -e "${RED}✗${NC} Failed to stash changes"
+            exit 1
+        fi
+    fi
+fi
 
 # Store current git commit before pull
 BEFORE_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
@@ -118,6 +134,36 @@ else
 fi
 
 AFTER_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+
+# Auto-restore stashed changes
+if [ "$STASHED" = true ]; then
+    echo ""
+    echo -e "${BLUE}Restoring stashed changes...${NC}"
+    if git stash pop 2>&1; then
+        echo -e "${GREEN}✓${NC} Stashed changes restored"
+    else
+        echo -e "${YELLOW}⚠${NC}  Warning: Failed to restore stash (may have conflicts)"
+        echo "  Run 'git stash list' to see stashed changes"
+    fi
+fi
+
+# Auto-fix script permissions
+echo ""
+echo -e "${BLUE}Checking script permissions...${NC}"
+SCRIPTS_TO_FIX=()
+for script in update.sh backfill_downtime.sh deploy.sh; do
+    if [ -f "$script" ] && [ ! -x "$script" ]; then
+        SCRIPTS_TO_FIX+=("$script")
+    fi
+done
+
+if [ ${#SCRIPTS_TO_FIX[@]} -gt 0 ]; then
+    echo -e "${YELLOW}⚠${NC}  Scripts need execute permissions: ${SCRIPTS_TO_FIX[*]}"
+    chmod +x "${SCRIPTS_TO_FIX[@]}"
+    echo -e "${GREEN}✓${NC} Execute permissions fixed"
+else
+    echo -e "${GREEN}✓${NC} All scripts have correct permissions"
+fi
 
 # Check if code changed
 CODE_CHANGED=false
@@ -143,15 +189,15 @@ NEED_BUILD=false
 
 if [ "$FORCE_BUILD" = true ]; then
     NEED_BUILD=true
-    echo -e "${BLUE}[2/6]${NC} Building Docker images (forced)..."
+    echo -e "${BLUE}[2/7]${NC} Building Docker images (forced)..."
 elif [ "$SKIP_BUILD" = true ]; then
     NEED_BUILD=false
-    echo -e "${BLUE}[2/6]${NC} Skipping Docker build (--skip-build flag)"
+    echo -e "${BLUE}[2/7]${NC} Skipping Docker build (--skip-build flag)"
 elif [ "$CODE_CHANGED" = true ]; then
     NEED_BUILD=true
-    echo -e "${BLUE}[2/6]${NC} Building Docker images (code changed)..."
+    echo -e "${BLUE}[2/7]${NC} Building Docker images (code changed)..."
 else
-    echo -e "${BLUE}[2/6]${NC} Skipping Docker build (no code changes)"
+    echo -e "${BLUE}[2/7]${NC} Skipping Docker build (no code changes)"
 fi
 
 if [ "$NEED_BUILD" = true ]; then
@@ -174,7 +220,7 @@ echo ""
 # Step 3: Check for new migrations
 #################################################################################
 
-echo -e "${BLUE}[3/6]${NC} Checking for database migrations..."
+echo -e "${BLUE}[3/7]${NC} Checking for database migrations..."
 
 NEED_MIGRATE=false
 
@@ -222,7 +268,7 @@ echo ""
 # Step 4: Restart services
 #################################################################################
 
-echo -e "${BLUE}[4/6]${NC} Restarting services..."
+echo -e "${BLUE}[4/7]${NC} Restarting services..."
 
 RESTART_START=$(date +%s)
 
@@ -246,7 +292,7 @@ echo ""
 # Step 5: Health check
 #################################################################################
 
-echo -e "${BLUE}[5/6]${NC} Verifying services..."
+echo -e "${BLUE}[5/7]${NC} Verifying services..."
 
 # Check database
 if docker compose exec -T timescaledb pg_isready -U kirby > /dev/null 2>&1; then
