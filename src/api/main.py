@@ -67,8 +67,42 @@ async def lifespan(app: FastAPI):
 # Create FastAPI app
 app = FastAPI(
     title="Kirby API",
-    description="High-performance cryptocurrency market data ingestion and API platform",
-    version="0.1.0",
+    description="""
+# Kirby Cryptocurrency Data Platform
+
+High-performance market data ingestion and API platform for cryptocurrency exchanges.
+
+## REST API
+
+Access historical and real-time market data via these endpoints below.
+
+**Authentication**: All endpoints require API key authentication via `Authorization: Bearer` header.
+
+**Available Data**:
+- 📊 **Candles** - OHLCV data at multiple intervals (1m, 15m, 4h, 1d)
+- 💰 **Funding Rates** - Perpetual funding rates (1-minute precision)
+- 📈 **Open Interest** - Open interest and volume data (1-minute precision)
+- ⭐ **Starlistings** - Available trading pairs and markets
+
+## WebSocket API
+
+For **real-time streaming** data, connect to the WebSocket endpoint:
+
+**Endpoint**: `ws://localhost:8000/ws?api_key=YOUR_API_KEY`
+
+**Features**:
+- Real-time candles, funding rates, and open interest updates
+- Subscribe to multiple trading pairs simultaneously
+- Historical data on connection (optional)
+- Automatic heartbeat/keepalive
+
+**📖 Full Documentation**: See [WebSocket API Documentation](https://github.com/YOUR_USERNAME/kirby/blob/main/docs/WEBSOCKET_API.md)
+
+---
+
+**Version**: 1.3.0 | **Environment**: Production
+""",
+    version="1.3.0",
     lifespan=lifespan,
     docs_url="/docs" if settings.is_development else None,
     redoc_url="/redoc" if settings.is_development else None,
@@ -135,8 +169,23 @@ async def root():
     """
     return {
         "name": "Kirby API",
-        "version": "0.1.0",
+        "version": "1.3.0",
         "description": "High-performance cryptocurrency market data API",
         "environment": settings.environment,
-        "docs": "/docs" if settings.is_development else None,
+        "endpoints": {
+            "rest_api": "/docs" if settings.is_development else None,
+            "websocket": "/ws?api_key=YOUR_API_KEY",
+            "health": "/health",
+        },
+        "features": [
+            "REST API - Historical and real-time candles, funding rates, open interest",
+            "WebSocket API - Real-time streaming of market data",
+            "Authentication - API key-based access control",
+            "Multiple exchanges - Currently: Hyperliquid",
+        ],
+        "documentation": {
+            "swagger": "/docs" if settings.is_development else None,
+            "redoc": "/redoc" if settings.is_development else None,
+            "websocket": "https://github.com/YOUR_USERNAME/kirby/blob/main/docs/WEBSOCKET_API.md",
+        },
     }
