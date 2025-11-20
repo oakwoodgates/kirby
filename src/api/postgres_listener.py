@@ -20,6 +20,7 @@ from structlog import get_logger
 
 from src.api.websocket_manager import ConnectionManager
 from src.config.settings import settings
+from src.db.connection import get_asyncpg_pool
 
 logger = get_logger(__name__)
 
@@ -369,9 +370,6 @@ class PostgresNotificationListener:
         Returns:
             List of starlisting IDs
         """
-        if not self.connection:
-            return []
-
         query = """
             SELECT id
             FROM starlistings
@@ -380,8 +378,11 @@ class PostgresNotificationListener:
         """
 
         try:
-            rows = await self.connection.fetch(query, trading_pair_id)
-            return [row["id"] for row in rows]
+            # Use connection pool for queries (not the LISTEN connection)
+            pool = await get_asyncpg_pool()
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(query, trading_pair_id)
+                return [row["id"] for row in rows]
 
         except Exception as e:
             logger.error(
@@ -406,9 +407,6 @@ class PostgresNotificationListener:
         Returns:
             Formatted message dict ready to broadcast, or None if not found
         """
-        if not self.connection:
-            return None
-
         query = """
             SELECT
                 c.time,
@@ -441,7 +439,10 @@ class PostgresNotificationListener:
             # The trigger sends format like "2025-11-17T17:33:14+00"
             time_dt = datetime.fromisoformat(time_str)
 
-            row = await self.connection.fetchrow(query, starlisting_id, time_dt)
+            # Use connection pool for queries (not the LISTEN connection)
+            pool = await get_asyncpg_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(query, starlisting_id, time_dt)
 
             if not row:
                 return None
@@ -497,9 +498,6 @@ class PostgresNotificationListener:
         Returns:
             Formatted message dict ready to broadcast, or None if not found
         """
-        if not self.connection:
-            return None
-
         query = """
             SELECT
                 f.time,
@@ -528,7 +526,11 @@ class PostgresNotificationListener:
 
         try:
             time_dt = datetime.fromisoformat(time_str)
-            row = await self.connection.fetchrow(query, trading_pair_id, starlisting_id, time_dt)
+
+            # Use connection pool for queries (not the LISTEN connection)
+            pool = await get_asyncpg_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(query, trading_pair_id, starlisting_id, time_dt)
 
             if not row:
                 return None
@@ -583,9 +585,6 @@ class PostgresNotificationListener:
         Returns:
             Formatted message dict ready to broadcast, or None if not found
         """
-        if not self.connection:
-            return None
-
         query = """
             SELECT
                 o.time,
@@ -611,7 +610,11 @@ class PostgresNotificationListener:
 
         try:
             time_dt = datetime.fromisoformat(time_str)
-            row = await self.connection.fetchrow(query, trading_pair_id, starlisting_id, time_dt)
+
+            # Use connection pool for queries (not the LISTEN connection)
+            pool = await get_asyncpg_pool()
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(query, trading_pair_id, starlisting_id, time_dt)
 
             if not row:
                 return None
