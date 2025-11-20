@@ -18,6 +18,12 @@ The Kirby WebSocket API provides real-time streaming of comprehensive market dat
 - ✅ **Validated messages** with detailed error responses
 - ✅ **Secure authentication** via API key
 
+**Data Distribution Model:**
+- **Candles**: Per-starlisting (each interval has different OHLCV values)
+- **Funding/OI**: Per-trading-pair (shared across all intervals)
+  - Example: BTC/USD 1m, 15m, 4h, and 1d all receive the same funding/OI updates
+  - Rationale: Funding rates and open interest are market-level metrics, not interval-specific
+
 ---
 
 ## Authentication

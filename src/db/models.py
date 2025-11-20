@@ -119,6 +119,79 @@ class Interval(Base, TimestampMixin):
         return f"<Interval(id={self.id}, name={self.name}, seconds={self.seconds})>"
 
 
+class TradingPair(Base, TimestampMixin):
+    """
+    TradingPair model - represents a unique combination of exchange, coin, quote currency,
+    and market type, independent of interval.
+
+    Funding rates and open interest are per trading pair, not per interval.
+    Example: Hyperliquid BTC/USD Perpetuals (applies to all intervals)
+    """
+
+    __tablename__ = "trading_pairs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    exchange_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("exchanges.id"), nullable=False
+    )
+    coin_id: Mapped[int] = mapped_column(Integer, ForeignKey("coins.id"), nullable=False)
+    quote_currency_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("quote_currencies.id"), nullable=False
+    )
+    market_type_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("market_types.id"), nullable=False
+    )
+
+    # Relationships
+    exchange: Mapped["Exchange"] = relationship("Exchange")
+    coin: Mapped["Coin"] = relationship("Coin")
+    quote_currency: Mapped["QuoteCurrency"] = relationship("QuoteCurrency")
+    market_type: Mapped["MarketType"] = relationship("MarketType")
+    starlistings: Mapped[List["Starlisting"]] = relationship(
+        "Starlisting", back_populates="trading_pair"
+    )
+    funding_rates: Mapped[List["FundingRate"]] = relationship(
+        "FundingRate", back_populates="trading_pair"
+    )
+    open_interests: Mapped[List["OpenInterest"]] = relationship(
+        "OpenInterest", back_populates="trading_pair"
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "exchange_id",
+            "coin_id",
+            "quote_currency_id",
+            "market_type_id",
+            name="uq_trading_pairs_exchange_coin_quote_market",
+        ),
+        Index(
+            "ix_trading_pairs_exchange_coin",
+            "exchange_id",
+            "coin_id",
+        ),
+        Index(
+            "ix_trading_pairs_coin",
+            "coin_id",
+        ),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<TradingPair(id={self.id}, exchange_id={self.exchange_id}, "
+            f"coin_id={self.coin_id}, quote_currency_id={self.quote_currency_id}, "
+            f"market_type_id={self.market_type_id})>"
+        )
+
+    def get_symbol(self) -> str:
+        """Get the trading pair symbol (e.g., 'BTC/USD')."""
+        return f"{self.coin.symbol}/{self.quote_currency.symbol}"
+
+    def get_full_name(self) -> str:
+        """Get full trading pair name (e.g., 'Hyperliquid BTC/USD Perps')."""
+        return f"{self.exchange.display_name} {self.get_symbol()} {self.market_type.display_name}"
+
+
 class Starlisting(Base, TimestampMixin):
     """
     Starlisting model - represents a unique combination of exchange, trading pair (coin+quote),
@@ -141,10 +214,14 @@ class Starlisting(Base, TimestampMixin):
         Integer, ForeignKey("market_types.id"), nullable=False
     )
     interval_id: Mapped[int] = mapped_column(Integer, ForeignKey("intervals.id"), nullable=False)
+    trading_pair_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("trading_pairs.id"), nullable=False
+    )
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Relationships
     exchange: Mapped["Exchange"] = relationship("Exchange", back_populates="starlistings")
+    trading_pair: Mapped["TradingPair"] = relationship("TradingPair", back_populates="starlistings")
     coin: Mapped["Coin"] = relationship("Coin", back_populates="starlistings")
     quote_currency: Mapped["QuoteCurrency"] = relationship("QuoteCurrency", back_populates="starlistings")
     market_type: Mapped["MarketType"] = relationship("MarketType", back_populates="starlistings")
@@ -240,14 +317,17 @@ class FundingRate(Base):
     """
     FundingRate model - represents perpetual futures funding rate data.
     This will be converted to a TimescaleDB hypertable.
+
+    Note: Funding rates are per trading pair (exchange + coin + quote + market_type),
+    not per interval. All intervals of the same trading pair share the same funding data.
     """
 
     __tablename__ = "funding_rates"
 
     time: Mapped[datetime] = mapped_column(primary_key=True, nullable=False)
-    starlisting_id: Mapped[int] = mapped_column(
+    trading_pair_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("starlistings.id"),
+        ForeignKey("trading_pairs.id"),
         primary_key=True,
         nullable=False,
     )
@@ -271,16 +351,16 @@ class FundingRate(Base):
     )
 
     # Relationship
-    starlisting: Mapped["Starlisting"] = relationship("Starlisting")
+    trading_pair: Mapped["TradingPair"] = relationship("TradingPair", back_populates="funding_rates")
 
     __table_args__ = (
-        Index("ix_funding_rates_starlisting_time", "starlisting_id", "time"),
+        Index("ix_funding_rates_trading_pair_time", "trading_pair_id", "time"),
         Index("ix_funding_rates_time", "time"),
     )
 
     def __repr__(self) -> str:
         return (
-            f"<FundingRate(time={self.time}, starlisting_id={self.starlisting_id}, "
+            f"<FundingRate(time={self.time}, trading_pair_id={self.trading_pair_id}, "
             f"funding_rate={self.funding_rate}, mark_price={self.mark_price})>"
         )
 
@@ -289,14 +369,17 @@ class OpenInterest(Base):
     """
     OpenInterest model - represents open interest (total position size) data.
     This will be converted to a TimescaleDB hypertable.
+
+    Note: Open interest is per trading pair (exchange + coin + quote + market_type),
+    not per interval. All intervals of the same trading pair share the same OI data.
     """
 
     __tablename__ = "open_interest"
 
     time: Mapped[datetime] = mapped_column(primary_key=True, nullable=False)
-    starlisting_id: Mapped[int] = mapped_column(
+    trading_pair_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("starlistings.id"),
+        ForeignKey("trading_pairs.id"),
         primary_key=True,
         nullable=False,
     )
@@ -315,16 +398,16 @@ class OpenInterest(Base):
     )
 
     # Relationship
-    starlisting: Mapped["Starlisting"] = relationship("Starlisting")
+    trading_pair: Mapped["TradingPair"] = relationship("TradingPair", back_populates="open_interests")
 
     __table_args__ = (
-        Index("ix_open_interest_starlisting_time", "starlisting_id", "time"),
+        Index("ix_open_interest_trading_pair_time", "trading_pair_id", "time"),
         Index("ix_open_interest_time", "time"),
     )
 
     def __repr__(self) -> str:
         return (
-            f"<OpenInterest(time={self.time}, starlisting_id={self.starlisting_id}, "
+            f"<OpenInterest(time={self.time}, trading_pair_id={self.trading_pair_id}, "
             f"open_interest={self.open_interest}, notional_value={self.notional_value})>"
         )
 

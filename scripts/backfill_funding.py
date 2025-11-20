@@ -33,7 +33,7 @@ class FundingBackfillService:
     async def backfill_coin(
         self,
         coin: str,
-        starlisting_id: int,
+        trading_pair_id: int,
         days: int = 365,
     ) -> int:
         """
@@ -41,7 +41,7 @@ class FundingBackfillService:
 
         Args:
             coin: Coin symbol (e.g., "BTC")
-            starlisting_id: Starlisting ID to associate with funding data
+            trading_pair_id: Trading pair ID to associate with funding data
             days: Number of days to backfill
 
         Returns:
@@ -50,7 +50,7 @@ class FundingBackfillService:
         self.logger.info(
             "Starting funding rate backfill",
             coin=coin,
-            starlisting_id=starlisting_id,
+            trading_pair_id=trading_pair_id,
             days=days,
         )
 
@@ -95,7 +95,7 @@ class FundingBackfillService:
                 try:
                     # Parse the record
                     funding_record = self._parse_funding_record(
-                        record, starlisting_id
+                        record, trading_pair_id
                     )
                     if funding_record:
                         funding_records.append(funding_record)
@@ -133,14 +133,14 @@ class FundingBackfillService:
             return 0
 
     def _parse_funding_record(
-        self, record: dict[str, Any], starlisting_id: int
+        self, record: dict[str, Any], trading_pair_id: int
     ) -> dict[str, Any] | None:
         """
         Parse a funding history record from Hyperliquid.
 
         Args:
             record: Raw funding record from API
-            starlisting_id: Starlisting ID
+            trading_pair_id: Trading pair ID
 
         Returns:
             Parsed funding record or None if invalid
@@ -165,7 +165,7 @@ class FundingBackfillService:
 
             return {
                 "time": time,
-                "starlisting_id": starlisting_id,
+                "trading_pair_id": trading_pair_id,
                 "funding_rate": Decimal(funding_rate_str),
                 "premium": Decimal(premium_str) if premium_str else None,
                 # Note: Historical data doesn't include all fields
@@ -202,7 +202,7 @@ class FundingBackfillService:
         # Prepare data for bulk insert
         records_to_insert = [
             (
-                record["starlisting_id"],
+                record["trading_pair_id"],
                 record["time"],
                 record["funding_rate"],
                 record["premium"],
@@ -219,13 +219,13 @@ class FundingBackfillService:
         # Use COALESCE to preserve existing data when backfill provides NULL
         query = """
             INSERT INTO funding_rates (
-                starlisting_id, time, funding_rate, premium,
+                trading_pair_id, time, funding_rate, premium,
                 mark_price, index_price, oracle_price, mid_price, next_funding_time
             )
             SELECT * FROM UNNEST($1::integer[], $2::timestamptz[], $3::numeric[],
                                  $4::numeric[], $5::numeric[], $6::numeric[],
                                  $7::numeric[], $8::numeric[], $9::timestamptz[])
-            ON CONFLICT (time, starlisting_id)
+            ON CONFLICT (time, trading_pair_id)
             DO UPDATE SET
                 funding_rate = COALESCE(EXCLUDED.funding_rate, funding_rates.funding_rate),
                 premium = COALESCE(EXCLUDED.premium, funding_rates.premium),
@@ -237,7 +237,7 @@ class FundingBackfillService:
         """
 
         # Transpose records for UNNEST
-        starlisting_ids = [r[0] for r in records_to_insert]
+        trading_pair_ids = [r[0] for r in records_to_insert]
         times = [r[1] for r in records_to_insert]
         funding_rates = [r[2] for r in records_to_insert]
         premiums = [r[3] for r in records_to_insert]
@@ -249,7 +249,7 @@ class FundingBackfillService:
 
         await pool.execute(
             query,
-            starlisting_ids,
+            trading_pair_ids,
             times,
             funding_rates,
             premiums,
@@ -284,19 +284,20 @@ class FundingBackfillService:
         finally:
             await session.close()
 
-        # Get unique coins (funding is per coin, not per interval)
+        # Get unique coins (funding is per trading pair, not per interval)
+        # Map coin to trading_pair_id
         unique_coins = {}
         for starlisting in starlistings:
             coin = starlisting["coin"]
             if coin not in unique_coins:
-                # Use the first (canonical) starlisting for this coin
-                unique_coins[coin] = starlisting["id"]
+                # Use the first (canonical) trading_pair_id for this coin
+                unique_coins[coin] = starlisting["trading_pair_id"]
 
         self.logger.info("Loaded unique coins", count=len(unique_coins))
 
         total_records = 0
-        for coin, starlisting_id in unique_coins.items():
-            records = await self.backfill_coin(coin, starlisting_id, days=days)
+        for coin, trading_pair_id in unique_coins.items():
+            records = await self.backfill_coin(coin, trading_pair_id, days=days)
             total_records += records
 
         self.logger.info(
@@ -333,19 +334,19 @@ class FundingBackfillService:
 
         # Filter by coin
         if coin:
-            # Find the canonical starlisting for this coin
-            coin_starlisting = None
+            # Find the canonical trading_pair_id for this coin
+            coin_trading_pair_id = None
             for sl in starlistings:
                 if sl["coin"] == coin:
-                    coin_starlisting = sl
+                    coin_trading_pair_id = sl["trading_pair_id"]
                     break
 
-            if not coin_starlisting:
+            if not coin_trading_pair_id:
                 self.logger.error("Coin not found in starlistings", coin=coin)
                 return
 
             records = await self.backfill_coin(
-                coin, coin_starlisting["id"], days=days
+                coin, coin_trading_pair_id, days=days
             )
 
             self.logger.info(

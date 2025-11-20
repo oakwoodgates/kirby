@@ -153,12 +153,21 @@ ssh -L 5050:localhost:5050 your-user@your-server-ip
 
 ### Core Tables
 
+**trading_pairs**: Unique combinations of exchange + coin + quote + market_type (interval-independent)
+- Columns: id, exchange_id, coin_id, quote_currency_id, market_type_id
+- Unique constraint: `uq_trading_pairs_exchange_coin_quote_market` on all foreign keys
+- Purpose: Represents a distinct market (e.g., "Hyperliquid BTC/USD perps")
+- Used by: funding_rates, open_interest (data that's per-market, not per-interval)
+- Example: One trading_pair for "Hyperliquid BTC/USD perps" shared by all intervals (1m, 15m, 4h, 1d)
+- Seed data: 2 trading_pairs (BTC/USD perps, SOL/USD perps)
+
 **starlistings**: Unique combinations of exchange + trading pair + market_type + interval
-- Columns: id, exchange_id, coin_id, quote_currency_id, market_type_id, interval_id, active
+- Columns: id, exchange_id, coin_id, quote_currency_id, market_type_id, interval_id, trading_pair_id, active
 - Unique constraint: `uq_starlisting` on all foreign keys
 - Index: `ix_starlisting_lookup` for fast queries
 - Helper method: `get_trading_pair()` returns "BTC/USD"
-- Seed data: 8 starlistings (BTC/SOL × USD × perps × 1m/15m/4h/1d)
+- Foreign key: `trading_pair_id` links to trading_pairs table
+- Seed data: 8 starlistings (BTC/SOL × USD × perps × 1m/15m/4h/1d) → 2 trading_pairs
 
 **candles**: TimescaleDB hypertable for OHLCV data
 - Primary key: (time, starlisting_id) - composite for uniqueness
@@ -169,23 +178,26 @@ ssh -L 5050:localhost:5050 your-user@your-server-ip
   - BRIN on time (efficient for time-series queries)
   - Composite on (starlisting_id, time) for fast filtering
 - ON CONFLICT: Upsert support for reprocessing/backfill with COALESCE to preserve existing data
+- **Note**: Candles are per-starlisting (includes interval) since different intervals have different OHLCV values
 
 **funding_rates**: TimescaleDB hypertable for funding rate data (1-minute precision)
-- Primary key: (time, starlisting_id) - composite for uniqueness
+- Primary key: (time, trading_pair_id) - composite for uniqueness
 - Columns: funding_rate, premium, mark_price, index_price, oracle_price, mid_price, next_funding_time (all Numeric/Timestamptz)
 - **Storage Strategy**: 1-minute intervals with buffering (1,440 records/day vs 86,400 at per-second)
 - **Timestamp Format**: Minute-precision (seconds/microseconds truncated to 0)
 - **Buffering**: In-memory buffer flushes every 60 seconds on minute boundary
 - **Real-time Data**: Collector captures all price fields via WebSocket
 - **Historical Data**: API only provides funding_rate + premium (no prices/OI)
+- **Why trading_pair_id?**: Funding rates are per-market, not per-interval (all intervals share same rate)
 - ON CONFLICT: Upsert with COALESCE to preserve existing data when backfill provides NULL
 
 **open_interest**: TimescaleDB hypertable for OI data (1-minute precision)
-- Primary key: (time, starlisting_id) - composite for uniqueness
+- Primary key: (time, trading_pair_id) - composite for uniqueness
 - Columns: open_interest, notional_value, day_base_volume, day_notional_volume (all Numeric)
 - **Storage Strategy**: 1-minute intervals with buffering (matches funding_rates)
 - **Timestamp Format**: Minute-precision aligned with candles and funding
 - **Real-time Only**: No historical OI data available from Hyperliquid API
+- **Why trading_pair_id?**: Open interest is per-market, not per-interval (all intervals share same OI)
 - ON CONFLICT: Upsert with COALESCE to preserve existing data
 
 ### Timestamp Alignment
@@ -194,13 +206,21 @@ All tables use **minute-precision timestamps** aligned to the start of the minut
 - Format: `2025-11-02 20:00:00+00` (seconds and microseconds are 0)
 - Alignment function: `truncate_to_minute()` in `src/utils/helpers.py`
 - Benefits: Easy to JOIN across tables on `time` column
-- Example query: `SELECT * FROM candles c JOIN funding_rates f ON c.time = f.time AND c.starlisting_id = f.starlisting_id`
+- Example query (joining candles with funding via starlistings):
+  ```sql
+  SELECT c.*, f.funding_rate, f.premium
+  FROM candles c
+  JOIN starlistings sl ON c.starlisting_id = sl.id
+  JOIN funding_rates f ON c.time = f.time AND sl.trading_pair_id = f.trading_pair_id
+  WHERE sl.id = 1;
+  ```
 
 ### Database Access Patterns
 
 **Writes** (high-performance via asyncpg):
 - Collectors use asyncpg pool directly
-- Bulk upsert: `INSERT ... ON CONFLICT (time, starlisting_id) DO UPDATE`
+- Bulk upsert for candles: `INSERT ... ON CONFLICT (time, starlisting_id) DO UPDATE`
+- Bulk upsert for funding/OI: `INSERT ... ON CONFLICT (time, trading_pair_id) DO UPDATE`
 - COALESCE pattern: `COALESCE(EXCLUDED.field, table.field)` preserves existing data
 - ~10x faster than ORM for bulk inserts
 - Connection pooling: 5-20 connections
@@ -291,15 +311,16 @@ Both databases use **identical table structures**:
 
 **Database Tables** (identical in both `kirby` and `kirby_training`):
 ```
+trading_pairs     # Core table - unique combinations of exchange/coin/quote/market_type (interval-independent)
 starlistings      # Core table - unique combinations of exchange/coin/quote/market_type/interval
 exchanges         # Reference table - exchange definitions
 coins             # Reference table - base assets (BTC, ETH, SOL)
 quote_currencies  # Reference table - quote assets (USD, USDT, USDC)
 market_types      # Reference table - market types (perps, spot, futures)
 intervals         # Reference table - time intervals (1m, 15m, 4h, 1d)
-candles           # TimescaleDB hypertable - OHLCV data
-funding_rates     # TimescaleDB hypertable - funding rate data
-open_interest     # TimescaleDB hypertable - open interest data
+candles           # TimescaleDB hypertable - OHLCV data (per starlisting_id)
+funding_rates     # TimescaleDB hypertable - funding rate data (per trading_pair_id)
+open_interest     # TimescaleDB hypertable - open interest data (per trading_pair_id)
 ```
 
 #### Terminology: Starlistings vs Training Stars

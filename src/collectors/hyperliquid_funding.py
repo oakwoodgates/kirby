@@ -31,7 +31,7 @@ class HyperliquidFundingCollector(BaseCollector):
         """Initialize Hyperliquid funding collector."""
         super().__init__("hyperliquid_funding")
         self.ws: WebSocketClientProtocol | None = None
-        self.subscriptions: dict[str, int] = {}  # coin -> starlisting_id mapping
+        self.subscriptions: dict[str, int] = {}  # coin -> trading_pair_id mapping
 
         # Buffering for 1-minute intervals
         self.funding_buffer: dict[str, dict[str, Any]] = {}  # coin -> latest funding data
@@ -127,13 +127,14 @@ class HyperliquidFundingCollector(BaseCollector):
             raise RuntimeError("WebSocket not connected")
 
         # Get unique coins from starlistings
+        # Map coin to trading_pair_id (since funding/OI are per trading pair, not interval)
         unique_coins = {}
         for starlisting in self.starlistings:
             coin = starlisting.coin.symbol
             if coin not in unique_coins:
-                unique_coins[coin] = starlisting.id
+                unique_coins[coin] = starlisting.trading_pair_id
 
-        for coin, starlisting_id in unique_coins.items():
+        for coin, trading_pair_id in unique_coins.items():
             # Create subscription message
             subscription = {
                 "method": "subscribe",
@@ -147,12 +148,12 @@ class HyperliquidFundingCollector(BaseCollector):
             await self.ws.send(json.dumps(subscription))
 
             # Track subscription
-            self.subscriptions[coin] = starlisting_id
+            self.subscriptions[coin] = trading_pair_id
 
             self.logger.info(
                 "Subscribed to asset context",
                 coin=coin,
-                starlisting_id=starlisting_id,
+                trading_pair_id=trading_pair_id,
             )
 
         self.logger.info(
@@ -276,20 +277,20 @@ class HyperliquidFundingCollector(BaseCollector):
             # Store the latest value for each coin - overwrites previous updates within the same minute
             if funding_data:
                 self.funding_buffer[coin] = {
-                    "starlisting_id": canonical_starlisting.id,
+                    "trading_pair_id": canonical_starlisting.trading_pair_id,
                     **funding_data,
                 }
 
             if oi_data:
                 self.oi_buffer[coin] = {
-                    "starlisting_id": canonical_starlisting.id,
+                    "trading_pair_id": canonical_starlisting.trading_pair_id,
                     **oi_data,
                 }
 
             self.logger.debug(
                 "Buffered funding/OI data",
                 coin=coin,
-                starlisting_id=canonical_starlisting.id,
+                trading_pair_id=canonical_starlisting.trading_pair_id,
                 funding_rate=str(funding_data.get("funding_rate")) if funding_data else None,
                 open_interest=str(oi_data.get("open_interest")) if oi_data else None,
             )
@@ -441,11 +442,11 @@ class HyperliquidFundingCollector(BaseCollector):
                     await pool.execute(
                         """
                         INSERT INTO funding_rates (
-                            starlisting_id, time, funding_rate, premium,
+                            trading_pair_id, time, funding_rate, premium,
                             mark_price, index_price, oracle_price, mid_price, next_funding_time
                         )
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                        ON CONFLICT (starlisting_id, time)
+                        ON CONFLICT (trading_pair_id, time)
                         DO UPDATE SET
                             funding_rate = EXCLUDED.funding_rate,
                             premium = EXCLUDED.premium,
@@ -455,7 +456,7 @@ class HyperliquidFundingCollector(BaseCollector):
                             mid_price = EXCLUDED.mid_price,
                             next_funding_time = EXCLUDED.next_funding_time
                         """,
-                        funding_data["starlisting_id"],
+                        funding_data["trading_pair_id"],
                         flush_time,  # Use truncated minute timestamp
                         funding_data["funding_rate"],
                         funding_data["premium"],
@@ -472,18 +473,18 @@ class HyperliquidFundingCollector(BaseCollector):
                     await pool.execute(
                         """
                         INSERT INTO open_interest (
-                            starlisting_id, time, open_interest, notional_value,
+                            trading_pair_id, time, open_interest, notional_value,
                             day_base_volume, day_notional_volume
                         )
                         VALUES ($1, $2, $3, $4, $5, $6)
-                        ON CONFLICT (starlisting_id, time)
+                        ON CONFLICT (trading_pair_id, time)
                         DO UPDATE SET
                             open_interest = EXCLUDED.open_interest,
                             notional_value = EXCLUDED.notional_value,
                             day_base_volume = EXCLUDED.day_base_volume,
                             day_notional_volume = EXCLUDED.day_notional_volume
                         """,
-                        oi_data["starlisting_id"],
+                        oi_data["trading_pair_id"],
                         flush_time,  # Use truncated minute timestamp
                         oi_data["open_interest"],
                         oi_data["notional_value"],
