@@ -387,20 +387,26 @@ async def fetch_historical_funding_batch(
 ) -> list:
     """Fetch historical funding rates for multiple starlistings in a single batch query.
 
+    Since funding rates are stored per trading_pair_id (not per starlisting_id),
+    we need to:
+    1. Get trading_pair_ids for requested starlistings
+    2. Query funding_rates by trading_pair_id
+    3. Return data for each starlisting (duplicating for starlistings that share a trading pair)
+
     Args:
         session: Database session
         starlisting_ids: List of starlisting IDs to fetch
-        limit: Number of funding rate snapshots per starlisting
+        limit: Number of funding rate snapshots per trading pair
 
     Returns:
-        List of rows with funding rate data and metadata
+        List of rows with funding rate data and metadata (one row per starlisting)
     """
     from sqlalchemy import func
 
-    # Subquery: Use row_number() to get last N funding rates per starlisting
+    # Subquery: Use row_number() to get last N funding rates per trading pair
     subq = (
         select(
-            FundingRate.starlisting_id,
+            FundingRate.trading_pair_id,
             FundingRate.time,
             FundingRate.funding_rate,
             FundingRate.premium,
@@ -411,16 +417,18 @@ async def fetch_historical_funding_batch(
             FundingRate.next_funding_time,
             func.row_number()
             .over(
-                partition_by=FundingRate.starlisting_id,
+                partition_by=FundingRate.trading_pair_id,
                 order_by=FundingRate.time.desc()
             )
             .label("row_num"),
         )
-        .where(FundingRate.starlisting_id.in_(starlisting_ids))
+        .join(Starlisting, FundingRate.trading_pair_id == Starlisting.trading_pair_id)
+        .where(Starlisting.id.in_(starlisting_ids))
         .subquery()
     )
 
     # Main query: Join with metadata tables
+    # This will return one row per starlisting (even if multiple starlistings share the same trading pair)
     stmt = (
         select(
             subq.c.time,
@@ -431,20 +439,21 @@ async def fetch_historical_funding_batch(
             subq.c.oracle_price,
             subq.c.mid_price,
             subq.c.next_funding_time,
-            subq.c.starlisting_id,
+            Starlisting.id.label("starlisting_id"),
             Exchange.name.label("exchange"),
             Coin.symbol.label("coin"),
             QuoteCurrency.symbol.label("quote"),
             MarketType.name.label("market_type"),
         )
         .select_from(subq)
-        .join(Starlisting, subq.c.starlisting_id == Starlisting.id)
+        .join(Starlisting, subq.c.trading_pair_id == Starlisting.trading_pair_id)
         .join(Exchange, Starlisting.exchange_id == Exchange.id)
         .join(Coin, Starlisting.coin_id == Coin.id)
         .join(QuoteCurrency, Starlisting.quote_currency_id == QuoteCurrency.id)
         .join(MarketType, Starlisting.market_type_id == MarketType.id)
         .where(subq.c.row_num <= limit)
-        .order_by(subq.c.starlisting_id, subq.c.time)
+        .where(Starlisting.id.in_(starlisting_ids))
+        .order_by(Starlisting.id, subq.c.time)
     )
 
     result = await session.execute(stmt)
@@ -458,20 +467,26 @@ async def fetch_historical_oi_batch(
 ) -> list:
     """Fetch historical open interest for multiple starlistings in a single batch query.
 
+    Since open interest is stored per trading_pair_id (not per starlisting_id),
+    we need to:
+    1. Get trading_pair_ids for requested starlistings
+    2. Query open_interest by trading_pair_id
+    3. Return data for each starlisting (duplicating for starlistings that share a trading pair)
+
     Args:
         session: Database session
         starlisting_ids: List of starlisting IDs to fetch
-        limit: Number of OI snapshots per starlisting
+        limit: Number of OI snapshots per trading pair
 
     Returns:
-        List of rows with OI data and metadata
+        List of rows with OI data and metadata (one row per starlisting)
     """
     from sqlalchemy import func
 
-    # Subquery: Use row_number() to get last N OI snapshots per starlisting
+    # Subquery: Use row_number() to get last N OI snapshots per trading pair
     subq = (
         select(
-            OpenInterest.starlisting_id,
+            OpenInterest.trading_pair_id,
             OpenInterest.time,
             OpenInterest.open_interest,
             OpenInterest.notional_value,
@@ -479,16 +494,18 @@ async def fetch_historical_oi_batch(
             OpenInterest.day_notional_volume,
             func.row_number()
             .over(
-                partition_by=OpenInterest.starlisting_id,
+                partition_by=OpenInterest.trading_pair_id,
                 order_by=OpenInterest.time.desc()
             )
             .label("row_num"),
         )
-        .where(OpenInterest.starlisting_id.in_(starlisting_ids))
+        .join(Starlisting, OpenInterest.trading_pair_id == Starlisting.trading_pair_id)
+        .where(Starlisting.id.in_(starlisting_ids))
         .subquery()
     )
 
     # Main query: Join with metadata tables
+    # This will return one row per starlisting (even if multiple starlistings share the same trading pair)
     stmt = (
         select(
             subq.c.time,
@@ -496,20 +513,21 @@ async def fetch_historical_oi_batch(
             subq.c.notional_value,
             subq.c.day_base_volume,
             subq.c.day_notional_volume,
-            subq.c.starlisting_id,
+            Starlisting.id.label("starlisting_id"),
             Exchange.name.label("exchange"),
             Coin.symbol.label("coin"),
             QuoteCurrency.symbol.label("quote"),
             MarketType.name.label("market_type"),
         )
         .select_from(subq)
-        .join(Starlisting, subq.c.starlisting_id == Starlisting.id)
+        .join(Starlisting, subq.c.trading_pair_id == Starlisting.trading_pair_id)
         .join(Exchange, Starlisting.exchange_id == Exchange.id)
         .join(Coin, Starlisting.coin_id == Coin.id)
         .join(QuoteCurrency, Starlisting.quote_currency_id == QuoteCurrency.id)
         .join(MarketType, Starlisting.market_type_id == MarketType.id)
         .where(subq.c.row_num <= limit)
-        .order_by(subq.c.starlisting_id, subq.c.time)
+        .where(Starlisting.id.in_(starlisting_ids))
+        .order_by(Starlisting.id, subq.c.time)
     )
 
     result = await session.execute(stmt)

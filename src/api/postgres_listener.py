@@ -116,17 +116,16 @@ class PostgresNotificationListener:
             connection: The asyncpg connection
             pid: PostgreSQL backend process ID
             channel: Channel name ('candle_updates', 'funding_updates', or 'oi_updates')
-            payload: JSON payload with starlisting_id and time
+            payload: JSON payload with starlisting_id/trading_pair_id and time
         """
         try:
             # Parse notification payload
             data = json.loads(payload)
-            starlisting_id = data.get("starlisting_id")
             time_str = data.get("time")
 
-            if not starlisting_id or not time_str:
+            if not time_str:
                 logger.warning(
-                    "notification_missing_fields",
+                    "notification_missing_time",
                     channel=channel,
                     payload=payload,
                 )
@@ -134,16 +133,43 @@ class PostgresNotificationListener:
 
             # Route to appropriate handler based on channel
             if channel == "candle_updates":
+                # Candles use starlisting_id (per interval)
+                starlisting_id = data.get("starlisting_id")
+                if not starlisting_id:
+                    logger.warning(
+                        "notification_missing_starlisting_id",
+                        channel=channel,
+                        payload=payload,
+                    )
+                    return
                 asyncio.create_task(
                     self._handle_candle_notification(starlisting_id, time_str)
                 )
             elif channel == "funding_updates":
+                # Funding uses trading_pair_id (shared across intervals)
+                trading_pair_id = data.get("trading_pair_id")
+                if not trading_pair_id:
+                    logger.warning(
+                        "notification_missing_trading_pair_id",
+                        channel=channel,
+                        payload=payload,
+                    )
+                    return
                 asyncio.create_task(
-                    self._handle_funding_notification(starlisting_id, time_str)
+                    self._handle_funding_notification(trading_pair_id, time_str)
                 )
             elif channel == "oi_updates":
+                # OI uses trading_pair_id (shared across intervals)
+                trading_pair_id = data.get("trading_pair_id")
+                if not trading_pair_id:
+                    logger.warning(
+                        "notification_missing_trading_pair_id",
+                        channel=channel,
+                        payload=payload,
+                    )
+                    return
                 asyncio.create_task(
-                    self._handle_oi_notification(starlisting_id, time_str)
+                    self._handle_oi_notification(trading_pair_id, time_str)
                 )
             else:
                 logger.warning("unknown_notification_channel", channel=channel)
@@ -206,93 +232,164 @@ class PostgresNotificationListener:
                 error=str(e),
             )
 
-    async def _handle_funding_notification(self, starlisting_id: int, time_str: str) -> None:
+    async def _handle_funding_notification(self, trading_pair_id: int, time_str: str) -> None:
         """Handle a funding rate notification by querying the database and broadcasting.
 
+        Since funding rates are per trading_pair_id (not per starlisting), we need to:
+        1. Find all starlistings with this trading_pair_id
+        2. Broadcast to subscribers of each starlisting
+
         Args:
-            starlisting_id: The starlisting ID of the new funding rate
+            trading_pair_id: The trading pair ID of the new funding rate
             time_str: ISO timestamp of the funding rate
         """
         try:
-            # Check if anyone is subscribed to this starlisting
-            subscriber_count = self.connection_manager.get_subscriber_count(starlisting_id)
-            if subscriber_count == 0:
-                # No subscribers, skip query
-                return
+            # Get all starlisting IDs for this trading pair
+            starlisting_ids = await self._get_starlistings_for_trading_pair(trading_pair_id)
 
-            # Query database for full funding rate data + starlisting metadata
-            funding_data = await self._query_funding_data(starlisting_id, time_str)
-
-            if not funding_data:
+            if not starlisting_ids:
                 logger.warning(
-                    "notification_funding_not_found",
-                    starlisting_id=starlisting_id,
-                    time=time_str,
+                    "notification_no_starlistings_for_trading_pair",
+                    trading_pair_id=trading_pair_id,
                 )
                 return
 
-            # Broadcast to all subscribers
-            sent_count = await self.connection_manager.broadcast_to_subscribers(
-                starlisting_id, funding_data
-            )
+            # Broadcast to each starlisting's subscribers
+            total_sent = 0
+            for starlisting_id in starlisting_ids:
+                # Check if anyone is subscribed to this starlisting
+                subscriber_count = self.connection_manager.get_subscriber_count(starlisting_id)
+                if subscriber_count == 0:
+                    # No subscribers, skip query
+                    continue
+
+                # Query database for full funding rate data + starlisting metadata
+                funding_data = await self._query_funding_data(trading_pair_id, starlisting_id, time_str)
+
+                if not funding_data:
+                    logger.warning(
+                        "notification_funding_not_found",
+                        trading_pair_id=trading_pair_id,
+                        starlisting_id=starlisting_id,
+                        time=time_str,
+                    )
+                    continue
+
+                # Broadcast to all subscribers of this starlisting
+                sent_count = await self.connection_manager.broadcast_to_subscribers(
+                    starlisting_id, funding_data
+                )
+                total_sent += sent_count
 
             logger.debug(
                 "funding_notification_broadcasted",
-                starlisting_id=starlisting_id,
-                sent_count=sent_count,
+                trading_pair_id=trading_pair_id,
+                starlisting_count=len(starlisting_ids),
+                total_sent=total_sent,
             )
 
         except Exception as e:
             logger.error(
                 "funding_notification_handler_error",
-                starlisting_id=starlisting_id,
+                trading_pair_id=trading_pair_id,
                 time=time_str,
                 error=str(e),
             )
 
-    async def _handle_oi_notification(self, starlisting_id: int, time_str: str) -> None:
+    async def _handle_oi_notification(self, trading_pair_id: int, time_str: str) -> None:
         """Handle an open interest notification by querying the database and broadcasting.
 
+        Since open interest is per trading_pair_id (not per starlisting), we need to:
+        1. Find all starlistings with this trading_pair_id
+        2. Broadcast to subscribers of each starlisting
+
         Args:
-            starlisting_id: The starlisting ID of the new OI record
+            trading_pair_id: The trading pair ID of the new OI record
             time_str: ISO timestamp of the OI record
         """
         try:
-            # Check if anyone is subscribed to this starlisting
-            subscriber_count = self.connection_manager.get_subscriber_count(starlisting_id)
-            if subscriber_count == 0:
-                # No subscribers, skip query
-                return
+            # Get all starlisting IDs for this trading pair
+            starlisting_ids = await self._get_starlistings_for_trading_pair(trading_pair_id)
 
-            # Query database for full OI data + starlisting metadata
-            oi_data = await self._query_oi_data(starlisting_id, time_str)
-
-            if not oi_data:
+            if not starlisting_ids:
                 logger.warning(
-                    "notification_oi_not_found",
-                    starlisting_id=starlisting_id,
-                    time=time_str,
+                    "notification_no_starlistings_for_trading_pair",
+                    trading_pair_id=trading_pair_id,
                 )
                 return
 
-            # Broadcast to all subscribers
-            sent_count = await self.connection_manager.broadcast_to_subscribers(
-                starlisting_id, oi_data
-            )
+            # Broadcast to each starlisting's subscribers
+            total_sent = 0
+            for starlisting_id in starlisting_ids:
+                # Check if anyone is subscribed to this starlisting
+                subscriber_count = self.connection_manager.get_subscriber_count(starlisting_id)
+                if subscriber_count == 0:
+                    # No subscribers, skip query
+                    continue
+
+                # Query database for full OI data + starlisting metadata
+                oi_data = await self._query_oi_data(trading_pair_id, starlisting_id, time_str)
+
+                if not oi_data:
+                    logger.warning(
+                        "notification_oi_not_found",
+                        trading_pair_id=trading_pair_id,
+                        starlisting_id=starlisting_id,
+                        time=time_str,
+                    )
+                    continue
+
+                # Broadcast to all subscribers of this starlisting
+                sent_count = await self.connection_manager.broadcast_to_subscribers(
+                    starlisting_id, oi_data
+                )
+                total_sent += sent_count
 
             logger.debug(
                 "oi_notification_broadcasted",
-                starlisting_id=starlisting_id,
-                sent_count=sent_count,
+                trading_pair_id=trading_pair_id,
+                starlisting_count=len(starlisting_ids),
+                total_sent=total_sent,
             )
 
         except Exception as e:
             logger.error(
                 "oi_notification_handler_error",
-                starlisting_id=starlisting_id,
+                trading_pair_id=trading_pair_id,
                 time=time_str,
                 error=str(e),
             )
+
+    async def _get_starlistings_for_trading_pair(self, trading_pair_id: int) -> list[int]:
+        """Get all starlisting IDs for a given trading pair.
+
+        Args:
+            trading_pair_id: The trading pair ID
+
+        Returns:
+            List of starlisting IDs
+        """
+        if not self.connection:
+            return []
+
+        query = """
+            SELECT id
+            FROM starlistings
+            WHERE trading_pair_id = $1
+              AND active = true
+        """
+
+        try:
+            rows = await self.connection.fetch(query, trading_pair_id)
+            return [row["id"] for row in rows]
+
+        except Exception as e:
+            logger.error(
+                "query_starlistings_for_trading_pair_failed",
+                trading_pair_id=trading_pair_id,
+                error=str(e),
+            )
+            return []
 
     async def _query_candle_data(
         self, starlisting_id: int, time_str: str
@@ -385,7 +482,7 @@ class PostgresNotificationListener:
             return None
 
     async def _query_funding_data(
-        self, starlisting_id: int, time_str: str
+        self, trading_pair_id: int, starlisting_id: int, time_str: str
     ) -> Dict[str, Any] | None:
         """Query the database for funding rate data and metadata.
 
@@ -393,7 +490,8 @@ class PostgresNotificationListener:
         and all related tables to get complete metadata.
 
         Args:
-            starlisting_id: The starlisting ID
+            trading_pair_id: The trading pair ID (used for querying funding_rates)
+            starlisting_id: The starlisting ID (used for metadata and response)
             time_str: ISO timestamp of the funding rate
 
         Returns:
@@ -418,19 +516,19 @@ class PostgresNotificationListener:
                 qc.symbol as quote,
                 mt.name as market_type
             FROM funding_rates f
-            JOIN starlistings s ON f.starlisting_id = s.id
+            JOIN starlistings s ON s.id = $2
             JOIN exchanges e ON s.exchange_id = e.id
             JOIN coins co ON s.coin_id = co.id
             JOIN quote_currencies qc ON s.quote_currency_id = qc.id
             JOIN market_types mt ON s.market_type_id = mt.id
-            WHERE f.starlisting_id = $1
-              AND date_trunc('second', f.time) = date_trunc('second', $2::timestamptz)
+            WHERE f.trading_pair_id = $1
+              AND date_trunc('second', f.time) = date_trunc('second', $3::timestamptz)
             LIMIT 1
         """
 
         try:
             time_dt = datetime.fromisoformat(time_str)
-            row = await self.connection.fetchrow(query, starlisting_id, time_dt)
+            row = await self.connection.fetchrow(query, trading_pair_id, starlisting_id, time_dt)
 
             if not row:
                 return None
@@ -462,6 +560,7 @@ class PostgresNotificationListener:
         except Exception as e:
             logger.error(
                 "query_funding_data_failed",
+                trading_pair_id=trading_pair_id,
                 starlisting_id=starlisting_id,
                 time=time_str,
                 error=str(e),
@@ -469,7 +568,7 @@ class PostgresNotificationListener:
             return None
 
     async def _query_oi_data(
-        self, starlisting_id: int, time_str: str
+        self, trading_pair_id: int, starlisting_id: int, time_str: str
     ) -> Dict[str, Any] | None:
         """Query the database for open interest data and metadata.
 
@@ -477,7 +576,8 @@ class PostgresNotificationListener:
         and all related tables to get complete metadata.
 
         Args:
-            starlisting_id: The starlisting ID
+            trading_pair_id: The trading pair ID (used for querying open_interest)
+            starlisting_id: The starlisting ID (used for metadata and response)
             time_str: ISO timestamp of the OI record
 
         Returns:
@@ -499,19 +599,19 @@ class PostgresNotificationListener:
                 qc.symbol as quote,
                 mt.name as market_type
             FROM open_interest o
-            JOIN starlistings s ON o.starlisting_id = s.id
+            JOIN starlistings s ON s.id = $2
             JOIN exchanges e ON s.exchange_id = e.id
             JOIN coins co ON s.coin_id = co.id
             JOIN quote_currencies qc ON s.quote_currency_id = qc.id
             JOIN market_types mt ON s.market_type_id = mt.id
-            WHERE o.starlisting_id = $1
-              AND date_trunc('second', o.time) = date_trunc('second', $2::timestamptz)
+            WHERE o.trading_pair_id = $1
+              AND date_trunc('second', o.time) = date_trunc('second', $3::timestamptz)
             LIMIT 1
         """
 
         try:
             time_dt = datetime.fromisoformat(time_str)
-            row = await self.connection.fetchrow(query, starlisting_id, time_dt)
+            row = await self.connection.fetchrow(query, trading_pair_id, starlisting_id, time_dt)
 
             if not row:
                 return None
@@ -540,6 +640,7 @@ class PostgresNotificationListener:
         except Exception as e:
             logger.error(
                 "query_oi_data_failed",
+                trading_pair_id=trading_pair_id,
                 starlisting_id=starlisting_id,
                 time=time_str,
                 error=str(e),

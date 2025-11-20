@@ -25,7 +25,7 @@ class TestFundingRateEndpoint:
 
         test_funding_rates = [
             FundingRate(
-                starlisting_id=starlisting.id,
+                trading_pair_id=starlisting.trading_pair_id,
                 time=datetime(2024, 11, 16, 12, i, 0, tzinfo=timezone.utc),
                 funding_rate=Decimal("0.0001"),
                 premium=Decimal("0.00005"),
@@ -102,7 +102,7 @@ class TestFundingRateEndpoint:
         # Insert funding rates over a time range
         test_funding_rates = [
             FundingRate(
-                starlisting_id=starlisting.id,
+                trading_pair_id=starlisting.trading_pair_id,
                 time=datetime(2024, 11, 16, 12, i, 0, tzinfo=timezone.utc),
                 funding_rate=Decimal("0.0001"),
                 premium=Decimal("0.00005"),
@@ -242,7 +242,7 @@ class TestOpenInterestEndpoint:
 
         test_oi_records = [
             OpenInterest(
-                starlisting_id=starlisting.id,
+                trading_pair_id=starlisting.trading_pair_id,
                 time=datetime(2024, 11, 16, 12, i, 0, tzinfo=timezone.utc),
                 open_interest=Decimal("30000.5"),
                 notional_value=Decimal("2835000000.0"),
@@ -311,7 +311,7 @@ class TestOpenInterestEndpoint:
         # Insert OI records over a time range
         test_oi_records = [
             OpenInterest(
-                starlisting_id=starlisting.id,
+                trading_pair_id=starlisting.trading_pair_id,
                 time=datetime(2024, 11, 16, 12, i, 0, tzinfo=timezone.utc),
                 open_interest=Decimal("30000.5"),
                 notional_value=Decimal("2835000000.0"),

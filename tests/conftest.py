@@ -143,12 +143,37 @@ async def seed_starlistings(
     seed_base_data: dict[str, Any],
 ) -> list[Starlisting]:
     """Seed database with test starlistings."""
+    from src.db.models import TradingPair
+
     exchange = seed_base_data["exchange"]
     btc = seed_base_data["btc"]
     sol = seed_base_data["sol"]
     usd = seed_base_data["usd"]
     perps = seed_base_data["perps"]
     intervals = seed_base_data["intervals"]
+
+    # First, create trading pairs
+    # BTC/USD perps trading pair
+    btc_usd_perps = TradingPair(
+        exchange_id=exchange.id,
+        coin_id=btc.id,
+        quote_currency_id=usd.id,
+        market_type_id=perps.id,
+    )
+    db_session.add(btc_usd_perps)
+
+    # SOL/USD perps trading pair
+    sol_usd_perps = TradingPair(
+        exchange_id=exchange.id,
+        coin_id=sol.id,
+        quote_currency_id=usd.id,
+        market_type_id=perps.id,
+    )
+    db_session.add(sol_usd_perps)
+
+    await db_session.commit()
+    await db_session.refresh(btc_usd_perps)
+    await db_session.refresh(sol_usd_perps)
 
     starlistings = []
 
@@ -160,6 +185,7 @@ async def seed_starlistings(
             quote_currency_id=usd.id,
             market_type_id=perps.id,
             interval_id=intervals[interval_name].id,
+            trading_pair_id=btc_usd_perps.id,
             active=True,
         )
         db_session.add(starlisting)
@@ -173,6 +199,7 @@ async def seed_starlistings(
             quote_currency_id=usd.id,
             market_type_id=perps.id,
             interval_id=intervals[interval_name].id,
+            trading_pair_id=sol_usd_perps.id,
             active=True,
         )
         db_session.add(starlisting)

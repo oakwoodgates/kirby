@@ -368,7 +368,7 @@ class FundingRateRepository:
 
         Args:
             funding_rates: List of funding rate dictionaries with keys:
-                time, starlisting_id, funding_rate, premium, mark_price,
+                time, trading_pair_id, funding_rate, premium, mark_price,
                 index_price, oracle_price, mid_price, next_funding_time
 
         Returns:
@@ -379,11 +379,11 @@ class FundingRateRepository:
 
         query = """
             INSERT INTO funding_rates (
-                time, starlisting_id, funding_rate, premium,
+                time, trading_pair_id, funding_rate, premium,
                 mark_price, index_price, oracle_price, mid_price, next_funding_time
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            ON CONFLICT (starlisting_id, time)
+            ON CONFLICT (trading_pair_id, time)
             DO UPDATE SET
                 funding_rate = EXCLUDED.funding_rate,
                 premium = EXCLUDED.premium,
@@ -400,7 +400,7 @@ class FundingRateRepository:
                 [
                     (
                         rate["time"],
-                        rate["starlisting_id"],
+                        rate["trading_pair_id"],
                         Decimal(str(rate["funding_rate"])),
                         Decimal(str(rate["premium"])) if rate.get("premium") is not None else None,
                         Decimal(str(rate["mark_price"])) if rate.get("mark_price") is not None else None,
@@ -420,10 +420,17 @@ class FundingRateRepository:
         session: AsyncSession,
         starlisting_id: int,
     ) -> FundingRate | None:
-        """Get the latest funding rate for a starlisting."""
+        """Get the latest funding rate for a starlisting.
+
+        Since funding rates are stored per trading_pair_id, this method
+        joins through the starlisting's trading_pair to find the rate.
+        """
+        from src.db.models import Starlisting
+
         result = await session.execute(
             select(FundingRate)
-            .where(FundingRate.starlisting_id == starlisting_id)
+            .join(Starlisting, FundingRate.trading_pair_id == Starlisting.trading_pair_id)
+            .where(Starlisting.id == starlisting_id)
             .order_by(FundingRate.time.desc())
             .limit(1)
         )
@@ -440,6 +447,9 @@ class FundingRateRepository:
         """
         Get funding rates for a starlisting within a time range.
 
+        Since funding rates are stored per trading_pair_id, this method
+        joins through the starlisting's trading_pair to find the rates.
+
         Args:
             session: SQLAlchemy session
             starlisting_id: Starlisting ID
@@ -450,7 +460,13 @@ class FundingRateRepository:
         Returns:
             List of FundingRate objects
         """
-        query = select(FundingRate).where(FundingRate.starlisting_id == starlisting_id)
+        from src.db.models import Starlisting
+
+        query = (
+            select(FundingRate)
+            .join(Starlisting, FundingRate.trading_pair_id == Starlisting.trading_pair_id)
+            .where(Starlisting.id == starlisting_id)
+        )
 
         if start_time:
             query = query.where(FundingRate.time >= start_time)
@@ -478,7 +494,7 @@ class OpenInterestRepository:
 
         Args:
             open_interest_records: List of open interest dictionaries with keys:
-                time, starlisting_id, open_interest, notional_value,
+                time, trading_pair_id, open_interest, notional_value,
                 day_base_volume, day_notional_volume
 
         Returns:
@@ -489,11 +505,11 @@ class OpenInterestRepository:
 
         query = """
             INSERT INTO open_interest (
-                time, starlisting_id, open_interest, notional_value,
+                time, trading_pair_id, open_interest, notional_value,
                 day_base_volume, day_notional_volume
             )
             VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (starlisting_id, time)
+            ON CONFLICT (trading_pair_id, time)
             DO UPDATE SET
                 open_interest = EXCLUDED.open_interest,
                 notional_value = EXCLUDED.notional_value,
@@ -507,7 +523,7 @@ class OpenInterestRepository:
                 [
                     (
                         record["time"],
-                        record["starlisting_id"],
+                        record["trading_pair_id"],
                         Decimal(str(record["open_interest"])),
                         Decimal(str(record["notional_value"])) if record.get("notional_value") is not None else None,
                         Decimal(str(record["day_base_volume"])) if record.get("day_base_volume") is not None else None,
@@ -524,10 +540,17 @@ class OpenInterestRepository:
         session: AsyncSession,
         starlisting_id: int,
     ) -> OpenInterest | None:
-        """Get the latest open interest record for a starlisting."""
+        """Get the latest open interest record for a starlisting.
+
+        Since open interest is stored per trading_pair_id, this method
+        joins through the starlisting's trading_pair to find the record.
+        """
+        from src.db.models import Starlisting
+
         result = await session.execute(
             select(OpenInterest)
-            .where(OpenInterest.starlisting_id == starlisting_id)
+            .join(Starlisting, OpenInterest.trading_pair_id == Starlisting.trading_pair_id)
+            .where(Starlisting.id == starlisting_id)
             .order_by(OpenInterest.time.desc())
             .limit(1)
         )
@@ -544,6 +567,9 @@ class OpenInterestRepository:
         """
         Get open interest records for a starlisting within a time range.
 
+        Since open interest is stored per trading_pair_id, this method
+        joins through the starlisting's trading_pair to find the records.
+
         Args:
             session: SQLAlchemy session
             starlisting_id: Starlisting ID
@@ -554,7 +580,13 @@ class OpenInterestRepository:
         Returns:
             List of OpenInterest objects
         """
-        query = select(OpenInterest).where(OpenInterest.starlisting_id == starlisting_id)
+        from src.db.models import Starlisting
+
+        query = (
+            select(OpenInterest)
+            .join(Starlisting, OpenInterest.trading_pair_id == Starlisting.trading_pair_id)
+            .where(Starlisting.id == starlisting_id)
+        )
 
         if start_time:
             query = query.where(OpenInterest.time >= start_time)
