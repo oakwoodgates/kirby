@@ -410,6 +410,101 @@ curl -H "Authorization: Bearer {your_api_key}" \
 }
 ```
 
+#### Get Funding Rate Data
+
+```http
+GET /funding/{exchange}/{coin}/{quote}/{market_type}
+```
+
+**Parameters:**
+- `exchange` - Exchange name (e.g., `hyperliquid`)
+- `coin` - Base coin symbol (e.g., `BTC`)
+- `quote` - Quote currency symbol (e.g., `USD`)
+- `market_type` - Market type (e.g., `perps`)
+
+**Query Parameters:**
+- `start_time` (optional) - Start time (ISO 8601 or Unix timestamp)
+- `end_time` (optional) - End time (ISO 8601 or Unix timestamp)
+- `limit` (optional) - Maximum number of records (default: 1000, max: 5000)
+
+**Example:**
+```bash
+curl -H "Authorization: Bearer {your_api_key}" \
+  "http://localhost:8000/funding/hyperliquid/BTC/USD/perps?limit=10"
+```
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "time": "2025-11-20T09:53:00Z",
+      "funding_rate": "0.000012500000000000",
+      "premium": "-0.000141919800000000",
+      "mark_price": "91587.000000000000000000",
+      "index_price": "91601.000000000000000000",
+      "oracle_price": "91601.000000000000000000",
+      "mid_price": "91587.500000000000000000",
+      "next_funding_time": null
+    }
+  ],
+  "metadata": {
+    "exchange": "hyperliquid",
+    "coin": "BTC",
+    "quote": "USD",
+    "trading_pair": "BTC/USD",
+    "market_type": "perps",
+    "count": 10
+  }
+}
+```
+
+#### Get Open Interest Data
+
+```http
+GET /open-interest/{exchange}/{coin}/{quote}/{market_type}
+```
+
+**Parameters:**
+- `exchange` - Exchange name (e.g., `hyperliquid`)
+- `coin` - Base coin symbol (e.g., `BTC`)
+- `quote` - Quote currency symbol (e.g., `USD`)
+- `market_type` - Market type (e.g., `perps`)
+
+**Query Parameters:**
+- `start_time` (optional) - Start time (ISO 8601 or Unix timestamp)
+- `end_time` (optional) - End time (ISO 8601 or Unix timestamp)
+- `limit` (optional) - Maximum number of records (default: 1000, max: 5000)
+
+**Example:**
+```bash
+curl -H "Authorization: Bearer {your_api_key}" \
+  "http://localhost:8000/open-interest/hyperliquid/BTC/USD/perps?limit=10"
+```
+
+**Response:**
+```json
+{
+  "data": [
+    {
+      "time": "2025-11-20T09:53:00Z",
+      "open_interest": "29242.785200000000000000",
+      "notional_value": "2678258968.112400000000000000",
+      "day_base_volume": "42898.608070000000000000",
+      "day_notional_volume": "3889408146.746299266800000000"
+    }
+  ],
+  "metadata": {
+    "exchange": "hyperliquid",
+    "coin": "BTC",
+    "quote": "USD",
+    "trading_pair": "BTC/USD",
+    "market_type": "perps",
+    "count": 10
+  }
+}
+```
+
 #### List Starlistings
 
 ```http
