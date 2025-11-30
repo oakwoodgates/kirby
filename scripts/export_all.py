@@ -52,10 +52,14 @@ async def get_starlisting_id(
     quote: str,
     market_type: str,
     interval: str,
-) -> int | None:
-    """Get starlisting ID for specified parameters."""
+) -> tuple[int, int] | None:
+    """Get starlisting ID and trading_pair_id for specified parameters.
+
+    Returns:
+        Tuple of (starlisting_id, trading_pair_id) or None if not found.
+    """
     stmt = (
-        select(Starlisting.id)
+        select(Starlisting.id, Starlisting.trading_pair_id)
         .join(Exchange, Starlisting.exchange_id == Exchange.id)
         .join(Coin, Starlisting.coin_id == Coin.id)
         .join(QuoteCurrency, Starlisting.quote_currency_id == QuoteCurrency.id)
@@ -71,7 +75,8 @@ async def get_starlisting_id(
     )
 
     result = await session.execute(stmt)
-    return result.scalar_one_or_none()
+    row = result.one_or_none()
+    return (row[0], row[1]) if row else None
 
 
 async def export_merged_data_for_interval(
@@ -94,16 +99,18 @@ async def export_merged_data_for_interval(
     """
     print(f"\nExporting merged {coin} {interval} dataset...")
 
-    # Get starlisting ID for candles
-    starlisting_id = await get_starlisting_id(
+    # Get starlisting ID for candles and trading_pair_id for funding/OI
+    result = await get_starlisting_id(
         session, exchange, coin, quote, market_type, interval
     )
 
-    if not starlisting_id:
+    if not result:
         print(
             f"  ERROR: Starlisting not found for {exchange}/{coin}/{quote}/{market_type}/{interval}"
         )
         return False
+
+    starlisting_id, trading_pair_id = result
 
     # Query candles (base dataset)
     print(f"  Querying candles...")
@@ -142,12 +149,12 @@ async def export_merged_data_for_interval(
 
     print(f"  Found {len(candles_df):,} candles")
 
-    # Query funding rates (we need any starlisting for this pair since funding is interval-independent)
+    # Query funding rates (funding is per trading_pair, not per starlisting/interval)
     print(f"  Querying funding rates...")
     funding_stmt = (
         select(FundingRate)
         .where(
-            FundingRate.starlisting_id == starlisting_id,  # Use same starlisting_id
+            FundingRate.trading_pair_id == trading_pair_id,
             FundingRate.time >= start_time,
             FundingRate.time <= end_time,
         )
@@ -185,12 +192,12 @@ async def export_merged_data_for_interval(
         funding_df = pd.DataFrame()
         print(f"  No funding rate data found")
 
-    # Query open interest
+    # Query open interest (OI is per trading_pair, not per starlisting/interval)
     print(f"  Querying open interest...")
     oi_stmt = (
         select(OpenInterest)
         .where(
-            OpenInterest.starlisting_id == starlisting_id,  # Use same starlisting_id
+            OpenInterest.trading_pair_id == trading_pair_id,
             OpenInterest.time >= start_time,
             OpenInterest.time <= end_time,
         )
