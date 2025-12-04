@@ -210,6 +210,21 @@ class StarlistingRepository(BaseRepository[Starlisting]):
         """Alias for get_active_starlistings() for consistency."""
         return await self.get_active_starlistings()
 
+    async def get_by_id_with_relations(self, starlisting_id: int) -> Starlisting | None:
+        """Get starlisting by ID with all relationships eagerly loaded."""
+        result = await self.session.execute(
+            select(Starlisting)
+            .where(Starlisting.id == starlisting_id)
+            .options(
+                selectinload(Starlisting.exchange),
+                selectinload(Starlisting.coin),
+                selectinload(Starlisting.quote_currency),
+                selectinload(Starlisting.market_type),
+                selectinload(Starlisting.interval),
+            )
+        )
+        return result.scalar_one_or_none()
+
 
 class CandleRepository:
     """

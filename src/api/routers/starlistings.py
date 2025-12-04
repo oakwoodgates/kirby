@@ -3,12 +3,13 @@ API router for starlisting endpoints.
 
 All endpoints require authentication via API key (X-API-Key header).
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies import get_db_session
 from src.api.middleware.auth import get_current_user, AuthenticatedUser
 from src.config.loader import ConfigLoader
+from src.db.repositories import StarlistingRepository
 from src.schemas.starlistings import StarlistingListResponse, StarlistingResponse
 
 router = APIRouter(prefix="/starlistings", tags=["starlistings"])
@@ -70,4 +71,54 @@ async def list_starlistings(
     return StarlistingListResponse(
         starlistings=starlisting_responses,
         total_count=len(starlisting_responses),
+    )
+
+
+@router.get(
+    "/{starlisting_id}",
+    response_model=StarlistingResponse,
+    summary="Get starlisting by ID",
+    description="Get a specific starlisting by its ID",
+    responses={404: {"description": "Starlisting not found"}},
+)
+async def get_starlisting(
+    starlisting_id: int,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: AuthenticatedUser = Depends(get_current_user),
+) -> StarlistingResponse:
+    """
+    Get a specific starlisting by ID.
+
+    Parameters:
+    - **starlisting_id**: The unique identifier of the starlisting
+
+    Returns:
+    - Starlisting details
+
+    Raises:
+    - **404**: If starlisting with given ID does not exist
+    """
+    repo = StarlistingRepository(session)
+    starlisting = await repo.get_by_id_with_relations(starlisting_id)
+
+    if not starlisting:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Starlisting with ID {starlisting_id} not found",
+        )
+
+    return StarlistingResponse(
+        id=starlisting.id,
+        exchange=starlisting.exchange.name,
+        exchange_display=starlisting.exchange.display_name,
+        coin=starlisting.coin.symbol,
+        coin_name=starlisting.coin.name,
+        quote=starlisting.quote_currency.symbol,
+        quote_name=starlisting.quote_currency.name,
+        trading_pair=starlisting.get_trading_pair(),
+        market_type=starlisting.market_type.name,
+        market_type_display=starlisting.market_type.display_name,
+        interval=starlisting.interval.name,
+        interval_seconds=starlisting.interval.seconds,
+        active=starlisting.active,
     )

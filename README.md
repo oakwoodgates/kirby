@@ -541,6 +541,47 @@ curl -H "Authorization: Bearer {your_api_key}" \
 }
 ```
 
+#### Get Starlisting by ID
+
+```http
+GET /starlistings/{starlisting_id}
+```
+
+**Parameters:**
+- `starlisting_id` - Starlisting ID (integer)
+
+**Example:**
+```bash
+curl -H "Authorization: Bearer {your_api_key}" \
+  "http://localhost:8000/starlistings/1"
+```
+
+**Response:**
+```json
+{
+  "id": 1,
+  "exchange": "hyperliquid",
+  "exchange_display": "Hyperliquid",
+  "coin": "BTC",
+  "coin_name": "Bitcoin",
+  "quote": "USD",
+  "quote_name": "US Dollar",
+  "trading_pair": "BTC/USD",
+  "market_type": "perps",
+  "market_type_display": "Perpetuals",
+  "interval": "15m",
+  "interval_seconds": 900,
+  "active": true
+}
+```
+
+**Error Response (404):**
+```json
+{
+  "detail": "Starlisting with ID 999 not found"
+}
+```
+
 #### Health Check
 
 ```http

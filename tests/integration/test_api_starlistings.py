@@ -73,3 +73,44 @@ class TestStarlistingsEndpoints:
         # Note: This test exposes that we need to implement proper filtering
         # For now, just verify it returns data
         assert isinstance(data["starlistings"], list)
+
+    @pytest.mark.asyncio
+    async def test_get_starlisting_by_id(
+        self, async_client: AsyncClient, seed_base_data, seed_starlistings
+    ):
+        """Test getting a single starlisting by ID."""
+        starlisting = seed_starlistings[0]
+        response = await async_client.get(f"/starlistings/{starlisting.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Verify all expected fields are present
+        assert data["id"] == starlisting.id
+        assert "exchange" in data
+        assert "exchange_display" in data
+        assert "coin" in data
+        assert "coin_name" in data
+        assert "quote" in data
+        assert "quote_name" in data
+        assert "trading_pair" in data
+        assert "market_type" in data
+        assert "market_type_display" in data
+        assert "interval" in data
+        assert "interval_seconds" in data
+        assert "active" in data
+
+        # Verify trading pair format
+        assert "/" in data["trading_pair"]
+
+    @pytest.mark.asyncio
+    async def test_get_starlisting_not_found(
+        self, async_client: AsyncClient, seed_base_data
+    ):
+        """Test 404 response for non-existent starlisting ID."""
+        response = await async_client.get("/starlistings/99999")
+
+        assert response.status_code == 404
+        data = response.json()
+        assert "detail" in data
+        assert "99999" in data["detail"]
