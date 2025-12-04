@@ -193,6 +193,7 @@ class ConfigLoader:
                     "quote": starlisting.quote_currency.symbol,
                     "quote_name": starlisting.quote_currency.name,
                     "trading_pair": starlisting.get_trading_pair(),
+                    "trading_pair_id": starlisting.trading_pair_id,
                     "market_type": starlisting.market_type.name,
                     "market_type_display": starlisting.market_type.display_name,
                     "interval": starlisting.interval.name,

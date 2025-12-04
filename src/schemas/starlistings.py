@@ -18,6 +18,7 @@ class StarlistingResponse(BaseModel):
                 "quote": "USD",
                 "quote_name": "US Dollar",
                 "trading_pair": "BTC/USD",
+                "trading_pair_id": 1,
                 "market_type": "perps",
                 "market_type_display": "Perpetuals",
                 "interval": "15m",
@@ -35,6 +36,7 @@ class StarlistingResponse(BaseModel):
     quote: str = Field(..., description="Quote asset symbol")
     quote_name: str = Field(..., description="Quote asset full name")
     trading_pair: str = Field(..., description="Trading pair (e.g., BTC/USD)")
+    trading_pair_id: int = Field(..., description="Trading pair ID")
     market_type: str = Field(..., description="Market type")
     market_type_display: str = Field(..., description="Market type display name")
     interval: str = Field(..., description="Time interval")
@@ -58,6 +60,7 @@ class StarlistingListResponse(BaseModel):
                         "quote": "USD",
                         "quote_name": "US Dollar",
                         "trading_pair": "BTC/USD",
+                        "trading_pair_id": 1,
                         "market_type": "perps",
                         "market_type_display": "Perpetuals",
                         "interval": "15m",
